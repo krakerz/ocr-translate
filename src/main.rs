@@ -2,6 +2,7 @@ mod capture;
 mod config;
 mod daemon;
 mod hotkey;
+mod icon;
 mod ocr;
 mod popup;
 mod translate;
@@ -75,7 +76,7 @@ fn main() -> Result<()> {
     let cfg = config::load(cli.config.as_deref())?;
 
     match cli.command.unwrap_or(Command::Run) {
-        Command::Run => daemon::run(cfg),
+        Command::Run => daemon::run(cfg, cli.config),
         Command::Capture => run_capture_cycle(&cfg),
         Command::TestProvider { provider, text } => test_provider(&cfg, provider, &text),
         Command::InitConfig { .. } => unreachable!("handled above"),

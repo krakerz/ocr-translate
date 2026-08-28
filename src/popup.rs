@@ -18,6 +18,7 @@ pub fn show_result(original: &str, translated: &str, cfg: &PopupConfig) -> Resul
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([cfg.width, cfg.height])
             .with_always_on_top()
+            .with_icon(crate::icon::egui_icon(128))
             .with_title("Translation"),
         ..Default::default()
     };
@@ -39,6 +40,7 @@ pub fn show_error(message: &str) -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([460.0, 220.0])
             .with_always_on_top()
+            .with_icon(crate::icon::egui_icon(128))
             .with_title("ocr-translate: error"),
         ..Default::default()
     };

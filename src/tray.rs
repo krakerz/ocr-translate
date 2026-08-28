@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-use tray_icon::{Icon, TrayIconBuilder};
+use tray_icon::TrayIconBuilder;
 
 use crate::daemon::DaemonEvent;
 
@@ -56,7 +56,7 @@ fn run_gtk_tray() -> anyhow::Result<()> {
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_tooltip("ocr-translate")
-        .with_icon(default_icon()?)
+        .with_icon(crate::icon::tray_icon(64)?)
         .build()?;
     gtk::main();
     Ok(())
@@ -68,29 +68,9 @@ fn run_native_tray() -> anyhow::Result<()> {
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_tooltip("ocr-translate")
-        .with_icon(default_icon()?)
+        .with_icon(crate::icon::tray_icon(64)?)
         .build()?;
     loop {
         std::thread::sleep(std::time::Duration::from_secs(3600));
     }
-}
-
-/// A plain 32x32 circle, so the tray works without shipping/loading an icon asset.
-fn default_icon() -> anyhow::Result<Icon> {
-    const SIZE: u32 = 32;
-    let center = SIZE as f32 / 2.0;
-    let radius = center - 1.0;
-    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let dx = x as f32 + 0.5 - center;
-            let dy = y as f32 + 0.5 - center;
-            if (dx * dx + dy * dy).sqrt() <= radius {
-                rgba.extend_from_slice(&[40, 120, 220, 255]);
-            } else {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            }
-        }
-    }
-    Ok(Icon::from_rgba(rgba, SIZE, SIZE)?)
 }

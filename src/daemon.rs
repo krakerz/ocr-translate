@@ -1,6 +1,8 @@
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc::channel;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::config::AppConfig;
 
@@ -10,9 +12,14 @@ pub enum DaemonEvent {
 }
 
 /// Runs the tray + hotkey daemon until "Quit" is chosen from the tray menu.
-/// All actual window/OCR/HTTP work happens on this (the main) thread; the
-/// tray and hotkey backends only ever send a `DaemonEvent` over a channel.
-pub fn run(cfg: AppConfig) -> Result<()> {
+///
+/// Each capture is run in a freshly spawned `ocr-translate capture` child
+/// process rather than in-process: the tray keeps a live GTK main loop
+/// running on its own thread, and opening an eframe/winit window from another
+/// thread in that same process can silently hang (GTK and winit both talking
+/// to the X11/Wayland connection at once). A separate process has no GTK
+/// state at all, matching the already-working standalone `capture` command.
+pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
     let (tx, rx) = channel::<DaemonEvent>();
 
     crate::tray::spawn(tx.clone());
@@ -45,8 +52,8 @@ pub fn run(cfg: AppConfig) -> Result<()> {
     for event in rx {
         match event {
             DaemonEvent::Capture => {
-                if let Err(e) = crate::run_capture_cycle(&cfg) {
-                    tracing::error!("capture cycle failed: {e:#}");
+                if let Err(e) = spawn_capture(config_path.as_deref()) {
+                    tracing::error!("failed to launch capture: {e:#}");
                 }
             }
             DaemonEvent::Quit => {
@@ -55,5 +62,17 @@ pub fn run(cfg: AppConfig) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn spawn_capture(config_path: Option<&Path>) -> Result<()> {
+    let exe = std::env::current_exe().context("could not determine our own executable path")?;
+    let mut cmd = Command::new(exe);
+    cmd.arg("capture");
+    if let Some(path) = config_path {
+        cmd.arg("--config").arg(path);
+    }
+    cmd.spawn()
+        .context("failed to spawn `ocr-translate capture`")?;
     Ok(())
 }

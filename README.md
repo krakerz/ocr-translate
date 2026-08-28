@@ -104,16 +104,27 @@ works, and running `ocr-translate capture` always works too.
 - **X11** (including XWayland): the daemon grabs `hotkey.capture_region`
   directly. Works out of the box.
 - **Wayland, GNOME 43+ / KDE Plasma 6+**: the daemon requests the shortcut
-  through the `GlobalShortcuts` desktop portal. Some compositors require the
-  app to be launched with a recognized app ID (e.g. via a `.desktop` file) for
-  this to be granted — if you see `NotAllowed: An app id is required` in the
-  logs, use the tray menu or the manual binding below instead.
+  through the `GlobalShortcuts` desktop portal. In practice this portal grants
+  shortcuts to Flatpak/Snap-sandboxed apps; a plain binary run from a terminal
+  gets `NotAllowed: An app id is required` — and, confirmed by testing, wrapping
+  the process in a matching systemd `app-<id>-<random>.scope`/`.service` (the
+  naming convention the portal's own app-id detection looks for) does **not**
+  help either, so this isn't something we can work around from inside the app
+  short of Flatpak-packaging it. Use one of the options below instead.
 - **Wayland, Sway / Hyprland / i3 / anything without that portal**: no app can
-  grab a truly global hotkey. Bind the key yourself in your compositor config
-  to run `ocr-translate capture`, e.g. for Sway:
+  grab a truly global hotkey either.
+
+Whichever of the above applies, two things always work: the tray's **Capture**
+menu item, and binding a key yourself to run `ocr-translate capture`:
+
+- **KDE Plasma**: System Settings → Shortcuts → add a custom command shortcut
+  that runs `ocr-translate capture`. This uses KWin's native global shortcut
+  system directly and does not go through the portal at all.
+- **Sway / Hyprland / i3**: bind it in your compositor config, e.g. for Sway:
   ```
   bindsym $mod+Shift+o exec ocr-translate capture
   ```
+- **GNOME**: Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts.
 
 ### Running as a systemd user service
 
@@ -139,9 +150,9 @@ systemctl --user enable --now ocr-translate.service
 - The crop-selector and popup windows are plain (non-fullscreen, non-overlay)
   windows sized to fit the content — there's no click-through live-desktop
   overlay, since no such API is portable across compositors.
-- The `GlobalShortcuts` portal isn't implemented (or allowed for unpackaged
-  binaries) by every Wayland compositor; use the tray menu or the CLI-binding
-  fallback above where it's missing.
+- The `GlobalShortcuts` portal effectively requires Flatpak/Snap sandboxing in
+  practice; for a plain binary, use the tray menu or bind `ocr-translate
+  capture` natively in your DE/WM instead (see above).
 - Active-monitor detection queries the pointer position over X11/XWayland; on
   a pure-Wayland session with no XWayland at all, it falls back to the
   primary monitor (X11 backend) or the full multi-monitor screenshot (portal

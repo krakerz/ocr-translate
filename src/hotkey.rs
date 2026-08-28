@@ -145,8 +145,12 @@ pub(crate) fn spawn_portal_listener(tx: Sender<DaemonEvent>, description: String
         };
         if let Err(e) = rt.block_on(portal_shortcut_loop(tx, description)) {
             tracing::warn!(
-                "GlobalShortcuts portal unavailable ({e}); bind `ocr-translate capture` \
-                 manually in your compositor's keybinding settings"
+                "GlobalShortcuts portal unavailable ({e}). This portal generally only \
+                 grants global shortcuts to Flatpak/Snap-sandboxed apps; a plain binary \
+                 gets 'An app id is required' even from a matching systemd scope. Use the \
+                 tray's Capture menu item, or bind `ocr-translate capture` to a key \
+                 yourself (on KDE: System Settings -> Shortcuts -> add a custom command \
+                 shortcut; on Sway/Hyprland/i3: bind it in your compositor config)"
             );
         }
     });

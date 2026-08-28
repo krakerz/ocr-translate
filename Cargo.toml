@@ -25,6 +25,9 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
 global-hotkey = "0.6"
+# Pinned: 0.9+ made Monitor::x()/y()/width()/height() call an internal Wayland
+# scale-factor lookup that hangs indefinitely on at least this project's
+# KDE/KWin setup. See CLAUDE.md before bumping this.
 xcap = "0.0.14"
 tray-icon = { version = "0.19", default-features = false }
 x11rb = "0.13"

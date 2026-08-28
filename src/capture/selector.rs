@@ -38,6 +38,7 @@ pub fn select_crop(image: &DynamicImage) -> Result<Option<DynamicImage>> {
             .with_decorations(false)
             .with_inner_size([init_w, init_h])
             .with_always_on_top()
+            .with_icon(crate::icon::egui_icon(128))
             .with_title("ocr-translate: scroll to zoom, drag to select"),
         ..Default::default()
     };
