@@ -1,0 +1,96 @@
+# ocr-translate configuration (YAML)
+#
+# Copy to $XDG_CONFIG_HOME/ocr-translate/config.yaml (usually ~/.config/ocr-translate/config.yaml)
+# or generate this file directly with: ocr-translate init-config --format yaml
+
+general:
+  # Target language for translation output.
+  target_lang: en
+  # Source language, or "auto" to let the provider detect it.
+  source_lang: auto
+  # trace | debug | info | warn | error
+  log_level: info
+
+ocr:
+  # Tesseract language code(s), e.g. "eng", "eng+jpn", "chi_sim". Must be installed
+  # as tessdata (see `tesseract --list-langs`).
+  languages: eng
+  # Optional override for TESSDATA_PREFIX if your distro puts tessdata somewhere unusual.
+  tessdata_dir: null
+  # Tesseract page segmentation mode; 6 = "assume a single uniform block of text",
+  # a good default for cropped UI text. See `tesseract --help-psm`.
+  psm: 6
+  # Grayscale + contrast-stretch the crop before OCR. Usually improves accuracy
+  # on small/anti-aliased UI text; disable if it hurts your specific case.
+  preprocess: true
+
+hotkey:
+  # Requested global shortcut. On Wayland this is sent to the
+  # org.freedesktop.portal.GlobalShortcuts portal (GNOME 43+ / KDE 6+ honor it,
+  # others may ignore it silently); on X11 it's grabbed directly.
+  # If it doesn't fire on your desktop, bind `ocr-translate capture` yourself
+  # in your compositor/WM's keybinding settings instead.
+  capture_region: "CTRL+ALT+O"
+  enable_portal: true
+  enable_x11: true
+
+popup:
+  width: 520
+  height: 380
+  font_size: 16
+  always_on_top: true
+  # Auto-dismiss the result popup after N seconds; 0 = stay open until closed.
+  auto_close_secs: 0
+
+prompt:
+  system: >-
+    You are a precise translation engine. Translate the user's text and reply
+    with ONLY the translation, no notes, no quotes, no explanations.
+  # Placeholders: {source_lang} {target_lang} {text}
+  template: |-
+    Translate the following text from {source_lang} to {target_lang}:
+
+    {text}
+
+# Which entry in `providers` below is used by default. Override per-run with
+# `ocr-translate test-provider --provider <name>`.
+active_provider: lmstudio
+
+providers:
+  # A locally running LM Studio server (Settings -> Developer -> Local Server).
+  lmstudio:
+    kind: openai_compatible
+    base_url: "http://localhost:1234/v1"
+    model: "local-model"
+
+  # Ollama's OpenAI-compatible endpoint (`ollama serve`, then any pulled model).
+  ollama:
+    kind: openai_compatible
+    base_url: "http://localhost:11434/v1"
+    model: "llama3.1"
+
+  # OpenAI's hosted API.
+  openai:
+    kind: openai_compatible
+    base_url: "https://api.openai.com/v1"
+    api_key_env: OPENAI_API_KEY
+    model: "gpt-4o-mini"
+
+  # DeepSeek's hosted API (OpenAI-compatible).
+  deepseek:
+    kind: openai_compatible
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: DEEPSEEK_API_KEY
+    model: "deepseek-chat"
+
+  # Google Cloud Translation API v2 (plain REST + API key, not the full Cloud SDK).
+  google:
+    kind: google_translate
+    api_key_env: GOOGLE_TRANSLATE_API_KEY
+
+  # Microsoft/Azure "Bing" Translator v3 REST API.
+  bing:
+    kind: bing_translate
+    api_key_env: AZURE_TRANSLATOR_KEY
+    # Only required for multi-service Azure resources.
+    region: null
