@@ -70,7 +70,25 @@ for why, and how to bind one yourself in your DE/compositor instead.
 
 ### Windows (in progress — see the note above)
 
-- Rust toolchain
+- **Rust toolchain — use `rustup`, and the `-msvc` ABI, not `-gnu`**.
+  Install via [rustup](https://rustup.rs) directly, or `choco install
+  rustup.install` if you're on Chocolatey (**not** the plain `choco install
+  rust` package — that's a fixed toolchain snapshot with no ABI to switch,
+  unlike rustup). Then:
+  ```powershell
+  rustup default stable-x86_64-pc-windows-msvc
+  ```
+  This needs Microsoft's
+  ["Build Tools for Visual Studio"](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+  with the "Desktop development with C++" workload installed — rustup's own
+  installer normally offers to set this up for you. Confirmed by testing:
+  the `-gnu` ABI (what a Chocolatey `rust` install defaults to) hits `error
+  calling dlltool 'dlltool.exe': program not found` while compiling
+  `windows-sys` (it uses `raw-dylib` linking, which the GNU toolchain needs
+  a MinGW-provided `dlltool` to resolve; MSVC doesn't have this problem at
+  all). MSVC is also what GitHub's own `windows-latest` CI runners default
+  to, so it's the safer choice even if you already have a working `-gnu`
+  setup for other projects.
 - Tesseract + Leptonica via [vcpkg](https://github.com/microsoft/vcpkg):
   ```powershell
   vcpkg install tesseract:x64-windows
