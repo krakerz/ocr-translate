@@ -3720,7 +3720,7 @@ dependencies = [
 
 [[package]]
 name = "ocr-translate"
-version = "1.3.5"
+version = "1.3.6"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3745,6 +3745,7 @@ dependencies = [
  "tracing-subscriber",
  "tray-icon",
  "windows 0.62.2",
+ "winresource",
  "x11rb",
  "xcap",
 ]
@@ -6677,6 +6678,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winresource"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0986a8b1d586b7d3e4fe3d9ea39fb451ae22869dcea4aa109d287a374d866087"
+dependencies = [
+ "version_check",
 ]
 
 [[package]]

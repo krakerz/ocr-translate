@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "1.3.5"
+version = "1.3.6"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland) and Windows"
 license = "MIT"
@@ -81,6 +81,23 @@ pipewire = "0.10"
 [target.'cfg(target_os = "windows")'.dependencies]
 xcap = "0.9"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+# Embeds assets/icon.ico as the exe's icon resource on Windows (see
+# build.rs) — so it shows up in Explorer/the taskbar, not just in-app
+# windows/the tray icon (those are set at runtime from src/logo.jpeg via
+# src/icon.rs, unrelated). Deliberately NOT a target-gated dependency table
+# (unlike xcap/windows above): build.rs always compiles for the *host*
+# running the build, not `--target`, so a `[target.'cfg(target_os =
+# "windows")'.build-dependencies]` table would only make this crate
+# available when the host itself is Windows — silently breaking a genuine
+# Linux-host cross-compile for Windows (confirmed by testing: build.rs
+# failed with "unresolved crate `winresource`" under exactly that gating).
+# `winresource` is a real no-op on non-Windows hosts (only depends on the
+# portable `version_check`, confirmed compiling fine on Linux) and its own
+# docs recommend deciding what to do at runtime via `CARGO_CFG_TARGET_OS`
+# instead — see build.rs.
+[build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
 
 [profile.release]
 opt-level = 2

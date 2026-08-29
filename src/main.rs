@@ -1,3 +1,15 @@
+// Suppresses the console window Windows would otherwise auto-allocate when
+// this exe is double-clicked (or launched by a hotkey/tray with no parent
+// console) — matches how a tray-resident GUI app is expected to behave.
+// Doesn't affect stdout when run from an existing terminal: subsystem only
+// controls whether Windows *creates* a new console at startup, not whether
+// an inherited stdout handle can be written to, so `test-provider`,
+// `init-config`, etc. still print normally when run interactively (`cmd.exe`
+// specifically won't block waiting for a GUI-subsystem child the way it does
+// for a console one — not a concern for this project's actual invocation
+// paths: hotkeys/the tray call the exe directly, not through cmd.exe).
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod capture;
 mod config;
 mod daemon;
