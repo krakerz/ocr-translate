@@ -329,6 +329,14 @@ ocr-translate watch-region
 ocr-translate test-provider --provider openai "Bonjour le monde"
 ```
 
+`ocr-translate run` only ever runs one at a time — if you (or an autostart
+entry) start a second one while the tray daemon is already running, it shows
+an error popup and exits rather than opening a duplicate tray icon. This
+doesn't affect `capture`/`watch-clipboard`/`watch-region`/`show-history`:
+those are the commands your hotkey binding actually runs (see below), and
+running several of them at once — a capture while Live Region Translate is
+open, two captures back to back, etc. — is completely fine.
+
 ### Binding a key
 
 There's no in-app global hotkey — the only mechanism a Wayland app can use

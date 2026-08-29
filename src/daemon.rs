@@ -39,7 +39,31 @@ pub enum DaemonEvent {
 /// it's not implemented here at all. Bind `ocr-translate capture` to a key
 /// in your compositor/DE instead (see README) — that's the only mechanism
 /// that has ever reliably worked in this project.
+///
+/// **Single instance**: only `run` (this function) is guarded against being
+/// started twice — see [`acquire_single_instance_lock`]. `capture`,
+/// `show-history`, `watch-clipboard`, and `watch-region` (the commands a
+/// hotkey binding actually invokes) are deliberately NOT locked and this
+/// code never kills an existing process to make room for a new one — a
+/// second `capture` while one's already open, or `watch-region` alongside
+/// `watch-clipboard`, are legitimate, expected uses. If you're tempted to
+/// add contention-handling to those commands too, don't couple it to this
+/// lock; that's a different, unrelated concern.
 pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
+    let mut lock = acquire_single_instance_lock()?;
+    let _lock_guard = match lock.try_write() {
+        Ok(guard) => guard,
+        Err(_) => {
+            tracing::error!(
+                "another `ocr-translate run` instance is already active — not starting a second one (check your system tray for the existing icon)"
+            );
+            let _ = crate::popup::show_error(
+                "ocr-translate is already running — check your system tray for the existing icon.",
+            );
+            return Ok(());
+        }
+    };
+
     let (tx, rx) = channel::<DaemonEvent>();
     let shared_cfg = Arc::new(RwLock::new(cfg));
 
@@ -86,6 +110,30 @@ pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Opens (creating if needed) a `daemon.lock` file next to the config
+/// directory, returning it wrapped for advisory locking. Doesn't acquire the
+/// lock itself — call `.try_write()` on the result.
+///
+/// An OS file lock (`flock` on Linux, via the cross-platform `fd-lock` crate)
+/// rather than a PID file: the OS releases it automatically when the
+/// holding process exits for *any* reason, including a crash or `kill -9`,
+/// so there's no stale-lock cleanup to get wrong (a PID file would need its
+/// own "is that PID actually still us?" check, which is exactly the kind of
+/// logic that risks misidentifying — and killing — an unrelated process).
+fn acquire_single_instance_lock() -> Result<fd_lock::RwLock<std::fs::File>> {
+    let dir = crate::config::app_config_dir()
+        .context("could not determine a config directory for this platform")?;
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create config directory {}", dir.display()))?;
+    let path = dir.join("daemon.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("failed to open lock file {}", path.display()))?;
+    Ok(fd_lock::RwLock::new(file))
 }
 
 fn spawn_subcommand(
