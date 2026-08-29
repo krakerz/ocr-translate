@@ -20,6 +20,7 @@ mod live_region;
 mod live_translate;
 mod ocr;
 mod popup;
+mod region_ipc;
 mod session_lock;
 mod translate;
 mod tray;
@@ -78,6 +79,23 @@ enum Command {
     /// and re-translates whenever the recognized text changes. Never
     /// recorded to history.
     WatchRegion,
+    /// Do a one-shot capture inside an already-running Live Region
+    /// Translate session — same pipeline as `capture` (including history),
+    /// but shown in that session's own window instead of a separate popup.
+    /// Bind this to a key the same way as `capture`. Errors if Live Region
+    /// Translate isn't currently running.
+    RegionCapture,
+    /// Show a read-only preview of every region an already-running Live
+    /// Region Translate session is currently watching. Errors if it isn't
+    /// currently running.
+    RegionShow,
+    /// Stop watching a region in an already-running Live Region Translate
+    /// session, by its id (the number shown as "Region <id>" in its
+    /// window). Errors if it isn't currently running.
+    RegionDelete { id: usize },
+    /// Rename a region in an already-running Live Region Translate session.
+    /// Errors if it isn't currently running.
+    RegionRename { id: usize, name: String },
     /// Reset the config file(s) in the default config directory to the
     /// bundled example. Config is created automatically on first run, so
     /// this is only needed to restore defaults.
@@ -155,6 +173,14 @@ fn main() -> Result<()> {
         Command::ShowHistory { index } => show_history(&cfg, index),
         Command::WatchClipboard => live_translate::run(&cfg),
         Command::WatchRegion => live_region::run(&cfg),
+        Command::RegionCapture => send_region_command(region_ipc::RegionCommand::QuickCapture),
+        Command::RegionShow => send_region_command(region_ipc::RegionCommand::ShowRegions),
+        Command::RegionDelete { id } => {
+            send_region_command(region_ipc::RegionCommand::Delete { id })
+        }
+        Command::RegionRename { id, name } => {
+            send_region_command(region_ipc::RegionCommand::Rename { id, name })
+        }
         Command::ClearHistory | Command::InitConfig { .. } => unreachable!("handled above"),
     }
 }
@@ -181,18 +207,41 @@ fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
     // Linux) that a one-shot screenshot can contend with — see
     // session_lock.rs. Bound to `_`, not a named variable: this is a
     // momentary check, not something `capture` holds for its own lifetime,
-    // so the lock is released again immediately after this line.
+    // so the lock is released again immediately after this line. Not part
+    // of `run_capture_pipeline` below: that's also called by Live Region
+    // Translate's own "Quick Capture" (`live_region.rs`), which is already
+    // holding this exact lock itself at that point — checking again there
+    // would see its own lock as "held" and absurdly offer to stop itself.
     let mut region_lock = session_lock::SessionLock::open("region")?;
-    let Some(_) = session_lock::resolve_conflict(&mut region_lock, "capture", "Live Region Translate")?
+    let Some(_) =
+        session_lock::resolve_conflict(&mut region_lock, "capture", "Live Region Translate")?
     else {
         tracing::info!("cancelled: Live Region Translate is active");
         return Ok(());
     };
 
+    let Some((text, translated, provider_used)) = run_capture_pipeline(cfg)? else {
+        return Ok(());
+    };
+    popup::show_result(&text, &translated, &provider_used, &cfg.translate)?;
+    Ok(())
+}
+
+/// Capture → crop → OCR → translate → record to history, exactly once,
+/// returning the recognized text, its translation, and which provider
+/// translated it — or `None` if the user cancelled the region selection.
+/// Shared by the standalone `capture` command (`run_capture_cycle_inner`,
+/// which also shows a popup and handles the region-lock conflict check) and
+/// Live Region Translate's "Quick Capture" button/CLI command
+/// (`region-capture`, see `live_region.rs`), which shows the result inline
+/// in its own window instead of a separate popup — using this same
+/// function (not a re-implementation) is what makes Quick Capture
+/// genuinely identical to a manual `capture`, history recording included.
+pub fn run_capture_pipeline(cfg: &AppConfig) -> Result<Option<(String, String, String)>> {
     tracing::info!("capturing...");
     let Some(cropped) = capture::acquire(&cfg.capture, &cfg.popup)? else {
         tracing::info!("selection cancelled");
-        return Ok(());
+        return Ok(None);
     };
 
     tracing::info!("running OCR...");
@@ -230,8 +279,23 @@ fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
         }
     }
 
-    popup::show_result(&text, &translated, &provider_used, &cfg.translate)?;
-    Ok(())
+    Ok(Some((text, translated, provider_used)))
+}
+
+/// `region-capture`/`region-show`/`region-delete`/`region-rename` are meant
+/// to be bound to a hotkey the same way `capture` is (see
+/// `region_ipc::RegionCommand`'s doc comment) — no attached terminal to see
+/// an error on, so a failure (most commonly: Live Region Translate isn't
+/// running) is also surfaced as a popup, same as `run_capture_cycle` does.
+fn send_region_command(command: region_ipc::RegionCommand) -> Result<()> {
+    match region_ipc::send(command) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            tracing::error!("{e:#}");
+            let _ = popup::show_error(&format!("{e:#}"));
+            Err(e)
+        }
+    }
 }
 
 fn test_provider(cfg: &AppConfig, provider: Option<String>, text: &str) -> Result<()> {

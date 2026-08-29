@@ -17,8 +17,16 @@ name: Autobuild
 # Windows is packaged and attached here too, but newer and less proven than
 # Linux — see CLAUDE.md/TODO.md. `release-windows` runs after `release-linux`
 # (not in parallel) so the two don't race updating the same release, and
-# only `release-linux` sets `generate_release_notes` — running that twice
-# risks duplicate/conflicting notes.
+# only `release-linux` sets the release body — running that twice risks
+# duplicate/conflicting notes.
+#
+# The release body comes from CHANGELOG.md, not GitHub's auto-generated
+# commit/PR notes: `release-linux` extracts the section whose header is
+# `## [<Cargo.toml version>]` (see CHANGELOG.md's own top-of-file note on
+# keeping that header format parseable) and passes it as `body_path`. A
+# version with no matching CHANGELOG.md entry still gets a release, just
+# with a placeholder body noting the entry is missing — never a hard
+# failure, so forgetting to update CHANGELOG.md doesn't block a release.
 
 on:
   push:
@@ -83,13 +91,29 @@ jobs:
           echo "asset_tarball=${DIST}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "asset_checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
+      - name: Extract this version's changelog entry
+        id: changelog
+        run: |
+          VERSION="${{ steps.package.outputs.version }}"
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "_No CHANGELOG.md entry found for v${VERSION}._" > release_notes.md
+          fi
+
       - name: Create draft release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.package.outputs.version }}-${{ github.run_number }}
           name: v${{ steps.package.outputs.version }} (build ${{ github.run_number }})
           draft: true
-          generate_release_notes: true
+          body_path: release_notes.md
           files: |
             ${{ steps.package.outputs.asset_tarball }}
             ${{ steps.package.outputs.asset_checksum }}

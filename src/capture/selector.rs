@@ -14,6 +14,16 @@ use crate::config::CaptureWindowConfig;
 /// whole screen first and let the user crop the still image in-app — this
 /// works identically on every compositor. Zoom makes it practical to select
 /// small text precisely, which a 1:1 view can't on a high-resolution monitor.
+/// A previously-selected region, drawn as a static labeled outline while
+/// picking a new one (or in [`show_regions`]'s read-only preview) — the
+/// name is drawn *inside* the box (not floating above it), so a labeled box
+/// stays visually self-contained even near the edge of the image.
+#[derive(Clone)]
+pub struct ExistingRegion {
+    pub rect: (u32, u32, u32, u32),
+    pub name: String,
+}
+
 pub fn select_crop(
     image: &DynamicImage,
     cfg: &CaptureWindowConfig,
@@ -28,15 +38,15 @@ pub fn select_crop(
 /// chosen rectangle (in `image`'s pixel space) instead of the cropped image
 /// itself — used by the live-region-translate feature, which needs to keep
 /// re-cropping the same rectangle out of subsequent ScreenCast frames rather
-/// than a single still image. `existing` rectangles (already-watched regions,
-/// when adding another one to a running Live Region Translate session) are
-/// drawn as static outlines so the user can see where those are while
+/// than a single still image. `existing` regions (already-watched, when
+/// adding another one to a running Live Region Translate session) are drawn
+/// as static labeled outlines so the user can see where those are while
 /// picking a new one — purely visual, doesn't block selecting an
 /// overlapping area.
 pub fn select_region_rect(
     image: &DynamicImage,
     cfg: &CaptureWindowConfig,
-    existing: &[(u32, u32, u32, u32)],
+    existing: &[ExistingRegion],
 ) -> Result<Option<(u32, u32, u32, u32)>> {
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
@@ -55,6 +65,7 @@ pub fn select_region_rect(
         drag_start: None,
         drag_current: None,
         existing: existing.to_vec(),
+        interactive: true,
         result: result.clone(),
     };
 
@@ -92,6 +103,65 @@ pub fn select_region_rect(
     Ok(Some((x0, y0, x1 - x0, y1 - y0)))
 }
 
+/// Read-only preview of every currently-watched region, labeled, against a
+/// live frame — used by Live Region Translate's "Show Regions" button/CLI
+/// command (`region-show`) so the user can see what's being watched without
+/// risking accidentally adding or changing anything. Same zoom/pan window
+/// as [`select_region_rect`] with drag-select disabled (`interactive:
+/// false`); closes on Esc or any click.
+pub fn show_regions(
+    image: &DynamicImage,
+    cfg: &CaptureWindowConfig,
+    regions: &[ExistingRegion],
+) -> Result<()> {
+    let rgba = image.to_rgba8();
+    let (width, height) = (rgba.width(), rgba.height());
+    let color_image =
+        egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], rgba.as_raw());
+
+    let result: Arc<Mutex<Option<((u32, u32), (u32, u32))>>> = Arc::new(Mutex::new(None));
+    let base_scale = fit_scale(width, height, cfg.width, cfg.height);
+    let app = SelectorApp {
+        color_image: Some(color_image),
+        texture: None,
+        image_size: (width, height),
+        base_scale,
+        zoom: 1.0,
+        pan: egui::Vec2::ZERO,
+        drag_start: None,
+        drag_current: None,
+        existing: regions.to_vec(),
+        interactive: false,
+        result,
+    };
+
+    let (init_w, init_h) =
+        crate::capture::clamp_to_screen(width as f32 * base_scale, height as f32 * base_scale);
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_decorations(false)
+        .with_inner_size([init_w, init_h])
+        .with_icon(crate::icon::egui_icon(128))
+        .with_title("ocr-translate: current regions (scroll: zoom · click/Esc: close)");
+    if cfg.always_on_top {
+        viewport = viewport.with_always_on_top();
+    }
+    let native_options = eframe::NativeOptions {
+        viewport,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "ocr-translate-show-regions",
+        native_options,
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
+    )
+    .map_err(|e| anyhow::anyhow!("show-regions window failed: {e}"))?;
+    Ok(())
+}
+
 /// Large screenshots (multi-monitor, 4K) shouldn't force an oversized native
 /// window; scale the *initial* display down to fit within `max_w`x`max_h`
 /// (`popup.width`/`height`), while zoom/pan let the user get back to 1:1 (or
@@ -115,9 +185,14 @@ struct SelectorApp {
     drag_start: Option<egui::Pos2>,
     drag_current: Option<egui::Pos2>,
     /// Already-selected regions (image pixel space) to draw as static
-    /// outlines, e.g. when adding another region to a running Live Region
-    /// Translate session — purely visual, never interactive.
-    existing: Vec<(u32, u32, u32, u32)>,
+    /// labeled outlines, e.g. when adding another region to a running Live
+    /// Region Translate session, or in the read-only [`show_regions`]
+    /// preview — purely visual, never interactive themselves.
+    existing: Vec<ExistingRegion>,
+    /// `false` for the read-only [`show_regions`] preview — disables drag
+    /// selection entirely (zoom/pan still work), since that window has
+    /// nothing to select, only regions to look at.
+    interactive: bool,
     result: Arc<Mutex<Option<((u32, u32), (u32, u32))>>>,
 }
 
@@ -176,8 +251,14 @@ impl eframe::App for SelectorApp {
                     self.pan += pointer.delta();
                 }
 
-                // Left-drag selects the crop rectangle.
-                if pointer.primary_pressed() {
+                if !self.interactive {
+                    // Read-only preview (`show_regions`): nothing to
+                    // select, any click just closes the window.
+                    if pointer.primary_clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                } else if pointer.primary_pressed() {
+                    // Left-drag selects the crop rectangle.
                     self.drag_start = pointer.interact_pos();
                     self.drag_current = self.drag_start;
                 } else if pointer.primary_down() {
@@ -219,7 +300,8 @@ impl eframe::App for SelectorApp {
                     egui::Color32::WHITE,
                 );
 
-                for &(x, y, w, h) in &self.existing {
+                for region in &self.existing {
+                    let (x, y, w, h) = region.rect;
                     let min = image_origin + egui::vec2(x as f32, y as f32) * scale;
                     let size = egui::vec2(w as f32, h as f32) * scale;
                     let rect = egui::Rect::from_min_size(min, size);
@@ -227,6 +309,16 @@ impl eframe::App for SelectorApp {
                         rect,
                         0.0,
                         egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(80, 160, 255)),
+                    );
+                    // Name drawn *inside* the box (top-left corner, clipped
+                    // to the box), not floating above it — stays readable
+                    // even for a region near the top edge of the image.
+                    ui.painter().with_clip_rect(rect).text(
+                        rect.min + egui::vec2(4.0, 2.0),
+                        egui::Align2::LEFT_TOP,
+                        &region.name,
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::from_rgb(80, 160, 255),
                     );
                 }
 
@@ -245,13 +337,21 @@ impl eframe::App for SelectorApp {
                 }
 
                 let hint_pos = panel_rect.min + egui::vec2(8.0, 8.0);
-                ui.painter().text(
-                    hint_pos,
-                    egui::Align2::LEFT_TOP,
+                let hint = if self.interactive {
                     format!(
                         "scroll: zoom ({:.0}%) · right-drag: pan · left-drag: select · Esc: cancel",
                         self.zoom * 100.0
-                    ),
+                    )
+                } else {
+                    format!(
+                        "scroll: zoom ({:.0}%) · right-drag: pan · click/Esc: close",
+                        self.zoom * 100.0
+                    )
+                };
+                ui.painter().text(
+                    hint_pos,
+                    egui::Align2::LEFT_TOP,
+                    hint,
                     egui::FontId::proportional(14.0),
                     egui::Color32::WHITE,
                 );

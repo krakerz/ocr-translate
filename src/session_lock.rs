@@ -94,8 +94,10 @@ impl SessionLock {
     /// for that lifetime, blocking any other access to it earlier in the
     /// same function, confirmed by trying exactly that and hitting E0502/
     /// E0499). Splitting the "is it free" check out like this avoids that
-    /// entirely.
-    fn is_held(&self) -> bool {
+    /// entirely. Public (unlike a `fn` that would otherwise stay private)
+    /// since `region_ipc::send` also needs it, to refuse queuing a command
+    /// for a Live Region Translate session that isn't actually running.
+    pub fn is_active(&self) -> bool {
         self.lock.try_read().is_err()
     }
 }
@@ -115,7 +117,7 @@ pub fn resolve_conflict<'a>(
     starting_what: &str,
     blocking_name: &str,
 ) -> Result<Option<fd_lock::RwLockWriteGuard<'a, File>>> {
-    if !lock.is_held() {
+    if !lock.is_active() {
         return Ok(lock.try_acquire()?);
     }
 
@@ -135,14 +137,14 @@ pub fn resolve_conflict<'a>(
                 terminate_process(pid)?;
             }
             // Give the OS a moment to actually release the flock once the
-            // other process exits — `is_held` (no tied lifetime) in the
+            // other process exits — `is_active` (no tied lifetime) in the
             // loop, one single `try_acquire` (the actual `'a`-tied borrow)
             // at the end, for the same reason `try_acquire` itself can't be
             // the thing called repeatedly in a loop here (E0499: each
             // iteration's call would conflict with the previous one, since
             // both are forced to share the same named lifetime `'a`).
             for _ in 0..20 {
-                if !lock.is_held() {
+                if !lock.is_active() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(150));

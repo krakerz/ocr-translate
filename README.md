@@ -285,14 +285,35 @@ place on screen.
 
 You can watch more than one region at once — click **+ Add Region** in the
 window to select another rectangle (previously-selected ones are outlined
-in blue so you can see where they are), and it's added alongside the
-existing one(s), each translated independently.
+and labeled in blue so you can see where they are), and it's added alongside
+the existing one(s), each translated independently. Each region can be
+**renamed** or **deleted** directly from its row in the window.
 
-Never recorded to history. Start it from the tray's **Live Region
-Translate** menu item, or:
+**Quick Capture**: a one-shot `capture` (same pipeline, including history)
+without leaving the window — click **Quick Capture**, drag a rectangle, and
+the result appears in its own toggleable slot at the top of the list.
+
+**Show Regions**: click to see a read-only preview of everywhere you're
+currently watching, labeled on the image.
+
+Never recorded to history for the watched regions themselves (Quick Capture
+is the one exception, since it's identical to a manual `capture`). Start it
+from the tray's **Live Region Translate** menu item, or:
 
 ```sh
 ocr-translate watch-region
+```
+
+The actions above are also available as their own commands, so you can bind
+them to a hotkey the same way as `capture` — each errors out (with a popup,
+same as `capture`'s own failures) if Live Region Translate isn't currently
+running:
+
+```sh
+ocr-translate region-capture           # Quick Capture
+ocr-translate region-show              # Show Regions
+ocr-translate region-delete <ID>       # delete a region by its number
+ocr-translate region-rename <ID> NAME  # rename a region
 ```
 
 Sizing/appearance comes from the shared `translate` config section;
@@ -335,6 +356,13 @@ ocr-translate watch-clipboard
 # Pick a screen region and show a live-updating translation popup.
 ocr-translate watch-region
 
+# Act on an already-running Live Region Translate session (see above) —
+# each errors out if it isn't currently running:
+ocr-translate region-capture
+ocr-translate region-show
+ocr-translate region-delete <ID>
+ocr-translate region-rename <ID> NAME
+
 # Sanity-check a provider without touching the screen:
 ocr-translate test-provider --provider openai "Bonjour le monde"
 ```
@@ -373,6 +401,11 @@ yourself, natively in your DE/compositor:
   ```
 - **Windows**: bind it via a shortcut key on a Start Menu/desktop shortcut,
   or a third-party hotkey tool.
+
+The same applies to `region-capture`/`region-show`/`region-delete`/
+`region-rename` — bind any of those to a key too, if you want to trigger a
+Quick Capture or manage regions in a running Live Region Translate session
+without switching to its window.
 
 ### Running as a systemd user service
 

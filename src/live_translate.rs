@@ -47,8 +47,11 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
     // still matters: if Live Region Translate is active, don't also start
     // this. See session_lock.rs.
     let mut region_lock = crate::session_lock::SessionLock::open("region")?;
-    let Some(_) =
-        crate::session_lock::resolve_conflict(&mut region_lock, "Live Clipboard Translate", "Live Region Translate")?
+    let Some(_) = crate::session_lock::resolve_conflict(
+        &mut region_lock,
+        "Live Clipboard Translate",
+        "Live Region Translate",
+    )?
     else {
         tracing::info!("cancelled: Live Region Translate is active");
         return Ok(());
