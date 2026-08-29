@@ -214,7 +214,7 @@ impl eframe::App for SelectorApp {
                     ui.painter().rect_stroke(
                         selection,
                         0.0,
-                        egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80)),
+                        egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(255, 80, 80)),
                     );
                     ui.painter().rect_filled(
                         selection,

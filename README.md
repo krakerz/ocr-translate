@@ -1,17 +1,25 @@
 # ocr-translate
 
-A small Rust tool: use the tray menu (or bind `ocr-translate capture` to a
-key yourself), drag-select a region of the screen, and get the OCR'd text
-translated by an LLM or translation API in a popup. On Linux this targets
-Wayland (GNOME/KDE/wlroots) via the standard xdg-desktop-portal APIs, without
-compositor-specific hacks; X11 sessions aren't supported as a first-class
-target there — see [Known limitations](#known-limitations) for the one place
-X11/XWayland is still used, as an implementation detail. **Windows support is
-in progress**: one-shot capture has a real backend (via `xcap`), but it's
-only been verified to *compile* so far (CI, no Windows machine available
-during development) — not yet confirmed to actually work correctly on real
-hardware. Live Region Translate isn't implemented on Windows yet (a clear
-error rather than a crash). macOS isn't started.
+A small Rust tool for **Linux (Wayland) and Windows**: use the tray menu (or
+bind `ocr-translate capture` to a key yourself), drag-select a region of the
+screen, and get the OCR'd text translated by an LLM or translation API in a
+popup. **macOS isn't supported yet.**
+
+On Linux this targets Wayland (GNOME/KDE/wlroots) via the standard
+xdg-desktop-portal APIs, without compositor-specific hacks; X11 sessions
+aren't supported as a first-class target there — see [Known
+limitations](#known-limitations) for the one place X11/XWayland is still
+used, as an implementation detail. This is the mature, day-to-day-verified
+platform.
+
+On Windows, one-shot capture has a real backend (via `xcap`) — but it's
+still being verified, and newer than the Linux support: confirmed to
+*compile*, both locally and in CI, but not yet confirmed on real hardware to
+actually produce a correct screenshot end-to-end. Live Region Translate
+isn't implemented on Windows yet (a clear error rather than a crash, if you
+try `watch-region` there). See the Windows [Requirements](#requirements)
+below for the build-environment setup this needed, and `TODO.md` (untracked,
+local) for the full verification status if you're working on this.
 
 ## How it works
 
@@ -68,34 +76,86 @@ for why, and how to bind one yourself in your DE/compositor instead.
   sudo apt install libgtk-3-dev libappindicator3-dev  # or libayatana-appindicator3-dev
   ```
 
-### Windows (in progress — see the note above)
+### Windows (build verified, real-hardware capture check still in progress — see the note above)
 
-- **Rust toolchain — use `rustup`, and the `-msvc` ABI, not `-gnu`**.
-  Install via [rustup](https://rustup.rs) directly, or `choco install
-  rustup.install` if you're on Chocolatey (**not** the plain `choco install
-  rust` package — that's a fixed toolchain snapshot with no ABI to switch,
-  unlike rustup). Then:
-  ```powershell
-  rustup default stable-x86_64-pc-windows-msvc
-  ```
-  This needs Microsoft's
-  ["Build Tools for Visual Studio"](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-  with the "Desktop development with C++" workload installed — rustup's own
-  installer normally offers to set this up for you. Confirmed by testing:
-  the `-gnu` ABI (what a Chocolatey `rust` install defaults to) hits `error
-  calling dlltool 'dlltool.exe': program not found` while compiling
-  `windows-sys` (it uses `raw-dylib` linking, which the GNU toolchain needs
-  a MinGW-provided `dlltool` to resolve; MSVC doesn't have this problem at
-  all). MSVC is also what GitHub's own `windows-latest` CI runners default
-  to, so it's the safer choice even if you already have a working `-gnu`
-  setup for other projects.
-- Tesseract + Leptonica via [vcpkg](https://github.com/microsoft/vcpkg):
-  ```powershell
-  vcpkg install tesseract:x64-windows
-  ```
-  then build with `VCPKGRS_DYNAMIC=true` set (see `.github/workflows/ci.yml`
-  for the exact CI setup this is based on — `leptess`, the OCR crate this
-  project uses, documents this as its own supported Windows approach).
+Every step below was hit and confirmed by testing on a real Windows machine
+while getting this working, in the order they tend to come up:
+
+1. **Rust toolchain — use `rustup`, and the `-msvc` ABI, not `-gnu`.**
+   Install via [rustup](https://rustup.rs) directly, or `choco install
+   rustup.install` if you're on Chocolatey (**not** the plain `choco install
+   rust` package — that's a fixed toolchain snapshot with no ABI to switch,
+   unlike rustup, and its binaries are `-gnu`). Then:
+   ```powershell
+   rustup default stable-x86_64-pc-windows-msvc
+   ```
+   **If you already had `choco install rust` installed, uninstall it —
+   don't just add rustup alongside it**: Chocolatey's `bin` directory sits
+   on the system-wide `PATH` ahead of rustup's user-level one, so its
+   `cargo.exe`/`rustc.exe` silently win every invocation regardless of what
+   `rustup default`/`rustup show` report (confirmed by testing: `rustup
+   show` reported `msvc` as active while `rustc --print cfg` still showed
+   `target_env="gnu"`, traced to `Get-Command cargo -All` listing
+   `C:\ProgramData\chocolatey\bin\cargo.exe` ahead of
+   `%USERPROFILE%\.cargo\bin\cargo.exe`). Run `choco uninstall rust`, open a
+   **new** terminal (PATH changes don't apply to already-open ones), and
+   confirm with `Get-Command cargo -All` / `rustc --print cfg` before
+   moving on — `rustup show` alone isn't enough to trust here.
+2. **Visual Studio "Build Tools" with the "Desktop development with C++"
+   workload** — [download here](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+   The MSVC ABI needs `link.exe` from this; without it you'll hit `error:
+   linker `link.exe` not found`. Installing just VS Code isn't sufficient
+   (the compiler error itself says so).
+3. **Tesseract + Leptonica via [vcpkg](https://github.com/microsoft/vcpkg)**,
+   plus **`VCPKG_ROOT` actually set** — confirmed by testing that without
+   it, the build fails with `VcpkgNotFound("No vcpkg installation
+   found...")` even with vcpkg itself installed and working. `C:\vcpkg`
+   below is just an example location — clone it wherever you like and point
+   `VCPKG_ROOT` at that instead:
+   ```powershell
+   git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+   C:\vcpkg\bootstrap-vcpkg.bat
+   C:\vcpkg\vcpkg.exe install tesseract:x64-windows
+   [System.Environment]::SetEnvironmentVariable('VCPKG_ROOT', 'C:\vcpkg', 'User')
+   [System.Environment]::SetEnvironmentVariable('VCPKGRS_DYNAMIC', 'true', 'User')
+   ```
+   Open a new terminal after setting those (same PATH-refresh reason as
+   step 1), then build. See `.github/workflows/autobuild.yml` for the equivalent
+   CI setup (that runner ships vcpkg pre-installed, so it only needs the
+   `install` + `VCPKG_ROOT` steps, not the clone/bootstrap).
+4. **LLVM (for `libclang`)** — `leptonica-sys`/`tesseract-sys` use `bindgen`
+   to generate Rust bindings from Tesseract/Leptonica's C headers, which
+   needs `libclang.dll` at build time. Confirmed by testing: without it, the
+   build fails with `Unable to find libclang: "couldn't find any valid
+   shared libraries matching: ['clang.dll', 'libclang.dll']..."` — even
+   though vcpkg itself found Tesseract/Leptonica correctly by that point.
+   ```powershell
+   choco install llvm
+   ```
+   (or `winget install LLVM.LLVM`, or the installer directly from
+   [LLVM's releases](https://github.com/llvm/llvm-project/releases) — check
+   "Add LLVM to the system PATH" if it's offered). Open a new terminal
+   afterward; if it's still not found, set `LIBCLANG_PATH` explicitly to
+   wherever `libclang.dll` landed (typically `C:\Program Files\LLVM\bin`).
+   **CI doesn't need this step** — GitHub's `windows-latest` runner ships
+   LLVM pre-installed (confirmed via its
+   [runner-images software manifest](https://github.com/actions/runner-images/blob/main/images/windows/Windows2022-Readme.md)),
+   so this is purely a local-machine setup gap.
+5. **After a successful build, running the exe can still fail** with `The
+   code execution cannot proceed because tesseract55.dll was not found.
+   Reinstalling the program may fix this problem.` — confirmed by testing.
+   Step 3's `VCPKGRS_DYNAMIC=true` links Tesseract/Leptonica dynamically, so
+   the exe needs `tesseract55.dll` and its dependencies (Leptonica, libpng,
+   zlib, libjpeg-turbo, libwebp, libtiff, openjp2, etc.) discoverable at
+   runtime, not just at link time — vcpkg builds these but doesn't put them
+   on PATH or next to your exe for you. Fix: copy everything from
+   `%VCPKG_ROOT%\installed\x64-windows\bin\` next to
+   `target\release\ocr-translate.exe` (or add that directory to PATH):
+   ```powershell
+   Copy-Item "$env:VCPKG_ROOT\installed\x64-windows\bin\*.dll" target\release\
+   ```
+   The packaged release archives from `autobuild.yml` already bundle these
+   DLLs alongside the exe, so this step is only needed for a local dev build.
 - Everything else (capture, tray, translate, popups) is either genuinely
   cross-platform already or has a Windows-specific backend — no other native
   library requirement beyond Tesseract/Leptonica right now. Live Region

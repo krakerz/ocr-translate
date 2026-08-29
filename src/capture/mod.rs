@@ -14,6 +14,9 @@ mod windows_backend;
 use anyhow::Result;
 use image::DynamicImage;
 
+// select_region_rect is only called from live_region.rs, which is Linux-only
+// (see main.rs) — unused on other platforms.
+#[cfg_attr(not(target_os = "linux"), allow(unused_imports))]
 pub use selector::{select_crop, select_region_rect};
 
 use crate::config::{CaptureBackend, CaptureConfig, CaptureWindowConfig};
@@ -21,7 +24,11 @@ use crate::config::{CaptureBackend, CaptureConfig, CaptureWindowConfig};
 /// A monitor's geometry in the platform's native pixel space (matches
 /// whatever coordinate space that platform's screenshot API returns, so a
 /// screenshot can always be cropped/positioned using these numbers directly).
+// x/y/primary are read by the Linux backend (portal.rs, monitor.rs) to crop
+// to the right monitor; the Windows backend gets an already-correctly-cropped
+// image straight from xcap, so it never reads them back off this struct.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct MonitorRect {
     pub x: i32,
     pub y: i32,
