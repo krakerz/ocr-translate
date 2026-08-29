@@ -1,8 +1,8 @@
 [package]
 name = "ocr-translate"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-description = "Screen OCR + LLM/translation-API popup tool for Linux (X11 & Wayland)"
+description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland)"
 license = "MIT"
 
 [[bin]]
@@ -13,6 +13,7 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1"
 rust-ini = "0.21"
 anyhow = "1"
 thiserror = "1"
@@ -21,21 +22,39 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
 image = "0.25"
 leptess = "0.14"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# cookies: the free Google/Bing/DeepL translate endpoints (src/translate/)
+# need a session's cookies carried from an initial page-load request into the
+# translation request(s) that follow it, same as a real browser would — this
+# turns reqwest::blocking::Client into carrying its own cookie jar so we
+# don't have to parse Set-Cookie/build Cookie headers by hand.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "cookies", "rustls-tls"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
-global-hotkey = "0.6"
-# Pinned: 0.9+ made Monitor::x()/y()/width()/height() call an internal Wayland
-# scale-factor lookup that hangs indefinitely on at least this project's
-# KDE/KWin setup. See CLAUDE.md before bumping this.
-xcap = "0.0.14"
 tray-icon = { version = "0.19", default-features = false }
-x11rb = "0.13"
+# randr: used to query monitor geometry directly (see src/capture/monitor.rs)
+# instead of depending on xcap, which hangs indefinitely on at least this
+# project's KDE/KWin setup as of 0.9+ (every geometry accessor calls an
+# internal Wayland scale-factor lookup that never returns). See CLAUDE.md.
+x11rb = { version = "0.13", features = ["randr"] }
 eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.28"
-arboard = "3"
+# wayland-data-control: without it, arboard silently uses its X11 backend
+# even under Wayland (WAYLAND_DISPLAY set), which can't see what a
+# Wayland-native tool like `wl-copy` placed on the clipboard — confirmed by
+# testing the `external` capture backend.
+arboard = { version = "3", features = ["wayland-data-control"] }
 chrono = "0.4"
 futures-util = "0.3"
+# 0.8.x fails to build against this system's PipeWire (1.6.8) headers
+# (libspa-sys 0.8.0's bindgen output has an opaque spa_pod_builder struct
+# incompatible with them); 0.10.1 builds cleanly. See src/capture/screencast.rs
+# and CLAUDE.md before bumping — verify a real build, not just `cargo check`.
+pipewire = "0.10"
+# Single-instance lock for `ocr-translate run` (see src/daemon.rs) — an
+# advisory OS file lock (flock on Linux) held for the daemon's whole
+# lifetime, released automatically on exit or crash so there's no stale
+# PID-file cleanup to get wrong.
+fd-lock = "4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

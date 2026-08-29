@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use ashpd::desktop::screenshot::Screenshot;
 use image::DynamicImage;
 
+use super::monitor;
 use super::pointer;
 
 /// Requests a screenshot through the xdg-desktop-portal `org.freedesktop.portal.Screenshot`
@@ -40,43 +41,29 @@ async fn grab_fullscreen_async() -> Result<DynamicImage> {
 }
 
 /// Crops the full multi-monitor portal screenshot down to just the monitor
-/// under the cursor. Monitor geometry comes from `xcap` (queried over X11 /
-/// XWayland), which may report either logical or physical pixel coordinates
-/// depending on the platform, so both are tried before giving up and
-/// returning the uncropped image.
+/// under the cursor. Monitor geometry comes from a direct XRandR query (see
+/// `capture::monitor`), which reports pixel coordinates in the same space
+/// XWayland presents to the compositor — the same space the portal
+/// screenshot is captured in.
 fn crop_to_active_monitor(full: DynamicImage) -> DynamicImage {
     let Some((px, py)) = pointer::global_position() else {
         tracing::debug!("could not determine cursor position; using the full portal screenshot");
         return full;
     };
-    let Ok(monitor) = xcap::Monitor::from_point(px, py) else {
-        tracing::debug!(
-            "could not resolve the monitor under the cursor; using the full portal screenshot"
-        );
+    let found = monitor::monitor_at(px, py).or_else(monitor::primary_monitor);
+    let Some(m) = found else {
+        tracing::debug!("could not resolve monitor geometry; using the full portal screenshot");
         return full;
     };
 
-    let scale = monitor.scale_factor();
-    let candidates = [
-        (monitor.x(), monitor.y(), monitor.width(), monitor.height()),
-        (
-            (monitor.x() as f32 * scale) as i32,
-            (monitor.y() as f32 * scale) as i32,
-            (monitor.width() as f32 * scale) as u32,
-            (monitor.height() as f32 * scale) as u32,
-        ),
-    ];
-
-    for (x, y, w, h) in candidates {
-        if x >= 0
-            && y >= 0
-            && (x as u32 + w) <= full.width()
-            && (y as u32 + h) <= full.height()
-            && w > 0
-            && h > 0
-        {
-            return full.crop_imm(x as u32, y as u32, w, h);
-        }
+    if m.x >= 0
+        && m.y >= 0
+        && (m.x as u32 + m.width) <= full.width()
+        && (m.y as u32 + m.height) <= full.height()
+        && m.width > 0
+        && m.height > 0
+    {
+        return full.crop_imm(m.x as u32, m.y as u32, m.width, m.height);
     }
 
     tracing::debug!(

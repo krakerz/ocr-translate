@@ -1,6 +1,6 @@
 # ocr-translate configuration (YAML)
 #
-# Copy to $XDG_CONFIG_HOME/ocr-translate/config.yaml (usually ~/.config/ocr-translate/config.yaml)
+# Copy to $XDG_CONFIG_HOME/ocr-translation/config.yaml (usually ~/.config/ocr-translation/config.yaml)
 # or generate this file directly with: ocr-translate init-config --format yaml
 
 general:
@@ -14,7 +14,7 @@ general:
 ocr:
   # Tesseract language code(s), e.g. "eng", "eng+jpn", "chi_sim". Must be installed
   # as tessdata (see `tesseract --list-langs`).
-  languages: eng
+  languages: jpn+eng
   # Optional override for TESSDATA_PREFIX if your distro puts tessdata somewhere unusual.
   tessdata_dir: null
   # Tesseract page segmentation mode; 6 = "assume a single uniform block of text",
@@ -24,23 +24,93 @@ ocr:
   # on small/anti-aliased UI text; disable if it hurts your specific case.
   preprocess: true
 
-hotkey:
-  # Requested global shortcut. On Wayland this is sent to the
-  # org.freedesktop.portal.GlobalShortcuts portal (GNOME 43+ / KDE 6+ honor it,
-  # others may ignore it silently); on X11 it's grabbed directly.
-  # If it doesn't fire on your desktop, bind `ocr-translate capture` yourself
-  # in your compositor/WM's keybinding settings instead.
-  capture_region: "CTRL+ALT+O"
-  enable_portal: true
-  enable_x11: true
+capture:
+  # built_in: grab the active monitor ourselves and crop it with our own
+  #           zoom/pan/select window. Portable across every Wayland desktop.
+  # external: run `external_command` and let IT do the region selection (a
+  #           real live overlay on your actual desktop), then read the image
+  #           it leaves on the clipboard. Nicer where available, but depends
+  #           on a specific tool being installed, so it isn't the default —
+  #           we don't know which desktop environment you're running.
+  backend: built_in
+  # Only used when backend: external. Must leave a PNG image on the clipboard
+  # when it's done. Examples:
+  #   KDE:      spectacle -r -b -c
+  #   wlroots:  grim -g "$(slurp)" - | wl-copy
+  #   GNOME:    gnome-screenshot -a -c
+  external_command: "spectacle -r -b -c"
+  # How long to keep polling the clipboard for an image after the command exits.
+  external_timeout_secs: 10
 
+# The in-app crop-selector window — "drag a rectangle to select" — shown by
+# both `ocr-translate capture` (built_in backend) and `watch-region`'s
+# initial region pick. `width`/`height` are the box the screenshot is
+# initially scaled to fit within (aspect ratio preserved); scroll to zoom in
+# further from there. Doesn't need to match your monitor's resolution.
 popup:
+  width: 1600
+  height: 1600
+  always_on_top: true
+
+# Shared by every window that shows a translation result: the one-shot
+# `capture` popup, Live Clipboard Translate, and Live Region Translate.
+# `auto_close_secs` only takes effect on the one-shot `capture` popup — the
+# Live Clipboard/Region windows ignore it, since they're meant to keep
+# running (and updating in place) until you close them yourself.
+translate:
   width: 520
   height: 380
   font_size: 16
   always_on_top: true
-  # Auto-dismiss the result popup after N seconds; 0 = stay open until closed.
+  # Auto-dismiss the one-shot capture popup after N seconds; 0 = stay open
+  # until closed.
   auto_close_secs: 0
+
+# Popup shown when reopening a history entry (tray History submenu /
+# `ocr-translate show-history`) — separate from `translate` above so you can
+# size it differently than the live capture-result popup, e.g. larger for
+# comfortably re-reading older entries.
+history_popup:
+  width: 520
+  height: 380
+  font_size: 16
+  always_on_top: true
+  auto_close_secs: 0
+
+history:
+  # Record each successful translation to history.jsonl next to this file.
+  enabled: true
+  # Oldest entries beyond this are trimmed after each capture.
+  max_entries: 50
+  # How many of the most recent entries to list in the tray's History submenu.
+  tray_menu_entries: 5
+
+# Tray's "Live Clipboard Translate": watches the clipboard and shows a
+# live-updating popup — copy something, see it translated; copy something
+# else, it updates in place. Never recorded to history.
+live_translate:
+  # Initial state of the popup's "Show source" checkbox; changeable per-session.
+  show_source_by_default: true
+  # How often to check whether the clipboard's text changed.
+  poll_interval_ms: 500
+
+# Tray's "Live Region Translate": pick a fixed screen region once (via a
+# PipeWire ScreenCast session), then keep OCR-ing that region and
+# re-translating whenever the recognized text changes. Never recorded to
+# history. Requires the xdg-desktop-portal ScreenCast backend.
+region_translate:
+  # Initial state of the popup's "Show source" checkbox; changeable per-session.
+  show_source_by_default: true
+  # How often to grab the latest frame, OCR the region, and re-translate if
+  # the text changed. OCR is much more expensive than the clipboard's plain
+  # text-change check, so this defaults slower than live_translate's.
+  poll_interval_ms: 1000
+  # How long to wait after the ScreenCast portal negotiation succeeds before
+  # grabbing the frame used for region selection. The compositor's own
+  # "share screen with..." picker dialog can still be visible in the first
+  # frame or two otherwise. Raise this if your compositor is slower to
+  # dismiss the picker.
+  capture_delay_secs: 1
 
 prompt:
   system: >-
@@ -52,9 +122,18 @@ prompt:
 
     {text}
 
-# Which entry in `providers` below is used by default. Override per-run with
-# `ocr-translate test-provider --provider <name>`.
+# Which entry in `providers` below is tried first. Override a one-off test
+# with `ocr-translate test-provider --provider <name>`.
 active_provider: lmstudio
+
+# If active_provider fails (server not running, bad key, network error, ...),
+# these are tried next, in order. The default below means: prefer your local
+# LM Studio, then fall back to Google's free public endpoint (no key needed)
+# — so the app still works even with nothing else configured. Bing and DeepL
+# below are also free/public by default and can be added here too, e.g.
+# `- bing` then `- deepl`, if you want more fallbacks before giving up.
+fallback_providers:
+  - google
 
 providers:
   # A locally running LM Studio server (Settings -> Developer -> Local Server).
@@ -79,21 +158,54 @@ providers:
     api_key_env: OPENAI_API_KEY
     model: "gpt-4o-mini"
 
-  # DeepSeek's hosted API (OpenAI-compatible).
+  # DeepSeek's hosted API (OpenAI-compatible). Unlike Google/Bing below,
+  # DeepSeek has no free/public unauthenticated endpoint to fall back to —
+  # it's a paid (or trial-credit) LLM API, always requiring api_key_env.
   deepseek:
     kind: openai_compatible
     base_url: "https://api.deepseek.com/v1"
     api_key_env: DEEPSEEK_API_KEY
     model: "deepseek-chat"
 
-  # Google Cloud Translation API v2 (plain REST + API key, not the full Cloud SDK).
+  # Google Translate.
+  #   mode: public  — the free, unofficial endpoint translate.google.com's own
+  #                   page uses. No API key, no billing, no prompt sent (it's
+  #                   a real translation API, not an LLM). Undocumented and
+  #                   could change or rate-limit without notice.
+  #   mode: private — the official Cloud Translation API v2. Needs api_key/
+  #                   api_key_env and a billing-enabled Google Cloud project.
   google:
     kind: google_translate
-    api_key_env: GOOGLE_TRANSLATE_API_KEY
+    mode: public
+    # For private mode instead:
+    # mode: private
+    # api_key_env: GOOGLE_TRANSLATE_API_KEY
 
-  # Microsoft/Azure "Bing" Translator v3 REST API.
+  # Microsoft/Azure "Bing" Translator.
+  #   mode: public  — the free, unofficial endpoint bing.com/translator's own
+  #                   page uses. No API key. Undocumented and could change or
+  #                   rate-limit without notice.
+  #   mode: private — the official Azure Translator v3 API. Needs api_key/
+  #                   api_key_env (+ region for multi-service resources).
   bing:
     kind: bing_translate
-    api_key_env: AZURE_TRANSLATOR_KEY
-    # Only required for multi-service Azure resources.
-    region: null
+    mode: public
+    # For private mode instead:
+    # mode: private
+    # api_key_env: AZURE_TRANSLATOR_KEY
+    # region: null
+
+  # DeepL Translator.
+  #   mode: public  — the free, unofficial endpoint deepl.com/translator's own
+  #                   page uses. No API key. Undocumented, more aggressively
+  #                   rate-limited than Google/Bing's free endpoints in
+  #                   testing — treat this as the least reliable of the three
+  #                   free options, and prefer mode: private if you have a key.
+  #   mode: private — the official DeepL API (Free or Pro tier — detected
+  #                   automatically from whether api_key ends in ":fx").
+  deepl:
+    kind: deepl_translate
+    mode: public
+    # For private mode instead:
+    # mode: private
+    # api_key_env: DEEPL_API_KEY

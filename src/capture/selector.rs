@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use image::DynamicImage;
 
+use crate::config::CaptureWindowConfig;
+
 /// Shows the captured screenshot in a borderless window and lets the user
 /// scroll to zoom, right-drag to pan, and left-drag a rectangle to crop.
 /// Returns `None` if the user cancels (Esc).
@@ -12,14 +14,32 @@ use image::DynamicImage;
 /// whole screen first and let the user crop the still image in-app — this
 /// works identically on every compositor. Zoom makes it practical to select
 /// small text precisely, which a 1:1 view can't on a high-resolution monitor.
-pub fn select_crop(image: &DynamicImage) -> Result<Option<DynamicImage>> {
+pub fn select_crop(
+    image: &DynamicImage,
+    cfg: &CaptureWindowConfig,
+) -> Result<Option<DynamicImage>> {
+    let Some((x0, y0, w, h)) = select_region_rect(image, cfg)? else {
+        return Ok(None);
+    };
+    Ok(Some(image.crop_imm(x0, y0, w, h)))
+}
+
+/// Same interactive zoom/pan/select UI as [`select_crop`], but returns the
+/// chosen rectangle (in `image`'s pixel space) instead of the cropped image
+/// itself — used by the live-region-translate feature, which needs to keep
+/// re-cropping the same rectangle out of subsequent ScreenCast frames rather
+/// than a single still image.
+pub fn select_region_rect(
+    image: &DynamicImage,
+    cfg: &CaptureWindowConfig,
+) -> Result<Option<(u32, u32, u32, u32)>> {
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
     let color_image =
         egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], rgba.as_raw());
 
     let result: Arc<Mutex<Option<((u32, u32), (u32, u32))>>> = Arc::new(Mutex::new(None));
-    let base_scale = fit_scale(width, height);
+    let base_scale = fit_scale(width, height, cfg.width, cfg.height);
     let app = SelectorApp {
         color_image: Some(color_image),
         texture: None,
@@ -32,21 +52,28 @@ pub fn select_crop(image: &DynamicImage) -> Result<Option<DynamicImage>> {
         result: result.clone(),
     };
 
-    let (init_w, init_h) = (width as f32 * base_scale, height as f32 * base_scale);
+    let (init_w, init_h) =
+        crate::capture::clamp_to_screen(width as f32 * base_scale, height as f32 * base_scale);
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_decorations(false)
+        .with_inner_size([init_w, init_h])
+        .with_icon(crate::icon::egui_icon(128))
+        .with_title("ocr-translate: scroll to zoom, drag to select");
+    if cfg.always_on_top {
+        viewport = viewport.with_always_on_top();
+    }
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_decorations(false)
-            .with_inner_size([init_w, init_h])
-            .with_always_on_top()
-            .with_icon(crate::icon::egui_icon(128))
-            .with_title("ocr-translate: scroll to zoom, drag to select"),
+        viewport,
         ..Default::default()
     };
 
     eframe::run_native(
         "ocr-translate-selector",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("crop selector window failed: {e}"))?;
 
@@ -56,16 +83,16 @@ pub fn select_crop(image: &DynamicImage) -> Result<Option<DynamicImage>> {
     if x1 <= x0 || y1 <= y0 {
         return Ok(None);
     }
-    Ok(Some(image.crop_imm(x0, y0, x1 - x0, y1 - y0)))
+    Ok(Some((x0, y0, x1 - x0, y1 - y0)))
 }
 
 /// Large screenshots (multi-monitor, 4K) shouldn't force an oversized native
-/// window; scale the *initial* display down to fit, while zoom/pan let the
-/// user get back to 1:1 (or closer) for precise selection.
-fn fit_scale(width: u32, height: u32) -> f32 {
-    const MAX_DIM: f32 = 1600.0;
+/// window; scale the *initial* display down to fit within `max_w`x`max_h`
+/// (`popup.width`/`height`), while zoom/pan let the user get back to 1:1 (or
+/// closer) for precise selection.
+fn fit_scale(width: u32, height: u32, max_w: f32, max_h: f32) -> f32 {
     let (w, h) = (width as f32, height as f32);
-    (MAX_DIM / w).min(MAX_DIM / h).min(1.0)
+    (max_w / w).min(max_h / h).min(1.0)
 }
 
 struct SelectorApp {

@@ -1,6 +1,8 @@
 mod bing;
+mod deepl;
 mod google;
 mod openai_compat;
+mod session;
 
 use anyhow::{bail, Result};
 
@@ -12,18 +14,22 @@ pub struct TranslateRequest<'a> {
     pub target_lang: &'a str,
 }
 
+impl TranslateRequest<'_> {
+    fn reborrow(&self) -> TranslateRequest<'_> {
+        TranslateRequest {
+            text: self.text,
+            source_lang: self.source_lang,
+            target_lang: self.target_lang,
+        }
+    }
+}
+
 pub trait Translator {
     fn translate(&self, req: TranslateRequest) -> Result<String>;
 }
 
 pub fn build(cfg: &AppConfig) -> Result<Box<dyn Translator>> {
-    let provider = cfg.providers.get(&cfg.active_provider).ok_or_else(|| {
-        anyhow::anyhow!(
-            "active_provider '{}' not found in config",
-            cfg.active_provider
-        )
-    })?;
-    build_for(provider, cfg)
+    build_named(&cfg.active_provider, cfg)
 }
 
 pub fn build_named(name: &str, cfg: &AppConfig) -> Result<Box<dyn Translator>> {
@@ -31,10 +37,36 @@ pub fn build_named(name: &str, cfg: &AppConfig) -> Result<Box<dyn Translator>> {
         .providers
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("provider '{name}' not found in config"))?;
-    build_for(provider, cfg)
+    build_for(name, provider, cfg)
 }
 
-fn build_for(provider: &ProviderConfig, cfg: &AppConfig) -> Result<Box<dyn Translator>> {
+/// Tries `active_provider` first, then each of `fallback_providers` in
+/// order, returning the first successful translation. Useful when the
+/// primary provider is a local server (e.g. LM Studio) that might not be
+/// running — a free public translator can still get the job done.
+pub fn translate_with_fallback(cfg: &AppConfig, req: TranslateRequest) -> Result<(String, String)> {
+    let mut names = vec![cfg.active_provider.clone()];
+    names.extend(cfg.fallback_providers.iter().cloned());
+
+    let mut last_err = None;
+    for name in &names {
+        let attempt = build_named(name, cfg).and_then(|t| t.translate(req.reborrow()));
+        match attempt {
+            Ok(translated) => return Ok((name.clone(), translated)),
+            Err(e) => {
+                tracing::warn!("provider '{name}' failed: {e:#}");
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no providers configured")))
+}
+
+fn build_for(
+    name: &str,
+    provider: &ProviderConfig,
+    cfg: &AppConfig,
+) -> Result<Box<dyn Translator>> {
     match provider.kind {
         ProviderKind::OpenAiCompatible => {
             let Some(base_url) = provider.base_url.clone() else {
@@ -53,19 +85,24 @@ fn build_for(provider: &ProviderConfig, cfg: &AppConfig) -> Result<Box<dyn Trans
             }))
         }
         ProviderKind::GoogleTranslate => Ok(Box::new(google::GoogleTranslate {
+            name: name.to_string(),
+            mode: provider.mode,
             api_key: provider.resolve_api_key(),
             timeout_secs: provider.timeout_secs,
         })),
-        ProviderKind::BingTranslate => {
-            let Some(api_key) = provider.resolve_api_key() else {
-                bail!("Bing/Azure Translator requires api_key or api_key_env");
-            };
-            Ok(Box::new(bing::BingTranslate {
-                api_key,
-                region: provider.region.clone(),
-                timeout_secs: provider.timeout_secs,
-            }))
-        }
+        ProviderKind::BingTranslate => Ok(Box::new(bing::BingTranslate {
+            name: name.to_string(),
+            mode: provider.mode,
+            api_key: provider.resolve_api_key(),
+            region: provider.region.clone(),
+            timeout_secs: provider.timeout_secs,
+        })),
+        ProviderKind::DeepLTranslate => Ok(Box::new(deepl::DeepLTranslate {
+            name: name.to_string(),
+            mode: provider.mode,
+            api_key: provider.resolve_api_key(),
+            timeout_secs: provider.timeout_secs,
+        })),
     }
 }
 

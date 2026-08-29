@@ -14,9 +14,10 @@ pub fn show_result(original: &str, translated: &str, cfg: &PopupConfig) -> Resul
         copied_flash: None,
     };
 
+    let (width, height) = crate::capture::clamp_to_screen(cfg.width, cfg.height);
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([cfg.width, cfg.height])
+            .with_inner_size([width, height])
             .with_always_on_top()
             .with_icon(crate::icon::egui_icon(128))
             .with_title("Translation"),
@@ -26,7 +27,10 @@ pub fn show_result(original: &str, translated: &str, cfg: &PopupConfig) -> Resul
     eframe::run_native(
         "ocr-translate-popup",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("popup window failed: {e}"))?;
     Ok(())
@@ -47,7 +51,10 @@ pub fn show_error(message: &str) -> Result<()> {
     eframe::run_native(
         "ocr-translate-error",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("error window failed: {e}"))?;
     Ok(())
