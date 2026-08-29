@@ -7,7 +7,6 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 
 use crate::config::AppConfig;
-use crate::hotkey::X11HotkeyHandle;
 
 pub enum DaemonEvent {
     Capture,
@@ -17,58 +16,36 @@ pub enum DaemonEvent {
     Quit,
 }
 
-/// Runs the tray + hotkey daemon until "Quit" is chosen from the tray menu.
+/// Runs the tray daemon until "Quit" is chosen from the tray menu.
 ///
 /// Each capture (and each "show this history entry" click) is run in a
 /// freshly spawned child process rather than in-process: the tray keeps a
 /// live GTK main loop running on its own thread, and opening an eframe/winit
 /// window from another thread in that same process can silently hang (GTK
-/// and winit both talking to the X11/Wayland connection at once). A separate
+/// and winit both talking to the Wayland connection at once). A separate
 /// process has no GTK state at all, matching the already-working standalone
 /// `capture` command. Since each of those child processes reloads config
 /// from disk itself, they're already "hot-reloaded" for free — see
 /// `watch_config` for the state that *does* live in this long-running
-/// process and needs its own reload path (hotkey registration, the tray's
-/// History submenu settings).
+/// process and needs its own reload path (currently just the tray's History
+/// submenu settings, which it already reads fresh on every refresh tick —
+/// see `tray::spawn` — so `watch_config` mainly exists to keep `shared`
+/// itself up to date for whatever future daemon-side state needs it).
+///
+/// There is no in-process hotkey: the `GlobalShortcuts` portal only grants
+/// shortcuts to Flatpak/Snap-sandboxed apps in practice (confirmed by
+/// testing — a plain binary gets `NotAllowed: An app id is required`), so
+/// it's not implemented here at all. Bind `ocr-translate capture` to a key
+/// in your compositor/DE instead (see README) — that's the only mechanism
+/// that has ever reliably worked in this project.
 pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
     let (tx, rx) = channel::<DaemonEvent>();
     let shared_cfg = Arc::new(RwLock::new(cfg));
 
     crate::tray::spawn(tx.clone(), shared_cfg.clone());
+    tracing::info!("running in the system tray — use the tray menu, or bind `ocr-translate capture` to a key in your compositor/DE");
 
-    let mut x11_hotkey: Option<X11HotkeyHandle> = None;
-    let mut any_hotkey_backend = false;
-    {
-        let cfg = shared_cfg.read().unwrap();
-        if crate::hotkey::is_wayland() {
-            if cfg.hotkey.enable_portal {
-                crate::hotkey::spawn_portal_listener(tx.clone(), cfg.hotkey.capture_region.clone());
-                any_hotkey_backend = true;
-            }
-        } else if cfg.hotkey.enable_x11 {
-            match crate::hotkey::spawn_x11_listener(tx.clone(), &cfg.hotkey.capture_region) {
-                Ok(handle) => {
-                    x11_hotkey = Some(handle);
-                    any_hotkey_backend = true;
-                }
-                Err(e) => tracing::warn!("X11 hotkey registration failed: {e}"),
-            }
-        }
-
-        if any_hotkey_backend {
-            tracing::info!(
-                "running in the system tray — press {} or use the tray menu to capture",
-                cfg.hotkey.capture_region
-            );
-        } else {
-            tracing::warn!(
-                "no in-process hotkey backend active; use the tray menu, or bind \
-                 `ocr-translate capture` to a key in your window manager"
-            );
-        }
-    }
-
-    watch_config(config_path.clone(), shared_cfg, x11_hotkey);
+    watch_config(config_path.clone(), shared_cfg);
 
     for event in rx {
         match event {
@@ -142,19 +119,7 @@ fn spawn_subcommand(
 /// reloads it and swaps it into `shared`. A reload that fails to parse (e.g.
 /// mid-edit, or a typo) is logged and the old config is kept rather than
 /// replaced with a broken one.
-///
-/// Of the daemon's own long-lived state, only two things actually need a
-/// live-reload path: the X11 hotkey registration (re-bound here if
-/// `hotkey.capture_region` changed) and the tray's History submenu settings
-/// (it already reads `shared` fresh on every refresh tick — see
-/// `tray::spawn` — so no extra action is needed for that one). The
-/// Wayland/portal hotkey session has no clean way to rebind live, so a
-/// change there is logged as needing a restart instead of attempted.
-fn watch_config(
-    config_path: Option<PathBuf>,
-    shared: Arc<RwLock<AppConfig>>,
-    x11_hotkey: Option<X11HotkeyHandle>,
-) {
+fn watch_config(config_path: Option<PathBuf>, shared: Arc<RwLock<AppConfig>>) {
     std::thread::spawn(move || {
         let mut last_mtime = config_mtime(config_path.as_deref());
         loop {
@@ -167,24 +132,6 @@ fn watch_config(
 
             match crate::config::load(config_path.as_deref()) {
                 Ok(new_cfg) => {
-                    let old_capture_region = shared.read().unwrap().hotkey.capture_region.clone();
-                    if new_cfg.hotkey.capture_region != old_capture_region {
-                        if let Some(handle) = &x11_hotkey {
-                            match handle.update(&new_cfg.hotkey.capture_region) {
-                                Ok(()) => tracing::info!(
-                                    "hotkey updated to {}",
-                                    new_cfg.hotkey.capture_region
-                                ),
-                                Err(e) => tracing::warn!("failed to update hotkey: {e:#}"),
-                            }
-                        } else if crate::hotkey::is_wayland() {
-                            tracing::warn!(
-                                "hotkey.capture_region changed, but the Wayland portal-based \
-                                 hotkey can't be rebound live; restart to apply, or bind \
-                                 `ocr-translate capture` natively in your compositor instead"
-                            );
-                        }
-                    }
                     *shared.write().unwrap() = new_cfg;
                     tracing::info!("config file changed; reloaded");
                 }

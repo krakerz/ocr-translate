@@ -18,7 +18,6 @@ pub struct AppConfig {
     pub general: GeneralConfig,
     pub ocr: OcrConfig,
     pub capture: CaptureConfig,
-    pub hotkey: HotkeyConfig,
     pub popup: PopupConfig,
     /// Sizing/behavior for the popup shown when reopening a history entry
     /// (tray History submenu / `show-history`) — separate from `popup` so it
@@ -54,7 +53,6 @@ impl Default for AppConfig {
             general: GeneralConfig::default(),
             ocr: OcrConfig::default(),
             capture: CaptureConfig::default(),
-            hotkey: HotkeyConfig::default(),
             popup: PopupConfig::default(),
             history_popup: PopupConfig::default(),
             history: HistoryConfig::default(),
@@ -112,7 +110,7 @@ impl Default for OcrConfig {
 pub enum CaptureBackend {
     /// Grab the active monitor ourselves and crop it with our own
     /// zoom/pan/select window (`capture::grab_active_monitor` + `select_crop`).
-    /// Portable across every X11/Wayland desktop.
+    /// Portable across every Wayland desktop.
     #[serde(rename = "built_in")]
     BuiltIn,
     /// Run an external screenshot tool that does its own live region
@@ -143,27 +141,6 @@ impl Default for CaptureConfig {
             backend: CaptureBackend::BuiltIn,
             external_command: "spectacle -r -b -c".to_string(),
             external_timeout_secs: 10,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct HotkeyConfig {
-    /// Human-readable accelerator requested from the desktop portal / X11 grab,
-    /// e.g. "CTRL+ALT+O". Wayland compositors without portal shortcut support
-    /// will ignore this — bind `ocr-translate capture` manually instead.
-    pub capture_region: String,
-    pub enable_portal: bool,
-    pub enable_x11: bool,
-}
-
-impl Default for HotkeyConfig {
-    fn default() -> Self {
-        Self {
-            capture_region: "CTRL+ALT+O".to_string(),
-            enable_portal: true,
-            enable_x11: true,
         }
     }
 }
@@ -435,7 +412,7 @@ fn load_yaml(path: &Path) -> Result<AppConfig> {
 }
 
 /// `.conf` files use INI syntax. Top-level scalar sections (`[general]`, `[ocr]`,
-/// `[capture]`, `[hotkey]`, `[popup]`, `[history_popup]`, `[history]`,
+/// `[capture]`, `[popup]`, `[history_popup]`, `[history]`,
 /// `[live_translate]`, `[prompt]`) map onto the matching struct fields; any
 /// section named `[provider.<name>]` becomes an
 /// entry in `providers`, e.g.:
@@ -529,13 +506,6 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 }
                 cfg.capture.external_timeout_secs =
                     get_u64("external_timeout_secs", cfg.capture.external_timeout_secs);
-            }
-            "hotkey" => {
-                if let Some(v) = get("capture_region") {
-                    cfg.hotkey.capture_region = v;
-                }
-                cfg.hotkey.enable_portal = get_bool("enable_portal", cfg.hotkey.enable_portal);
-                cfg.hotkey.enable_x11 = get_bool("enable_x11", cfg.hotkey.enable_x11);
             }
             "popup" => {
                 cfg.popup.width = get_f32("width", cfg.popup.width);

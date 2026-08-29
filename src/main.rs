@@ -3,7 +3,6 @@ mod config;
 mod daemon;
 mod fonts;
 mod history;
-mod hotkey;
 mod icon;
 mod live_translate;
 mod ocr;

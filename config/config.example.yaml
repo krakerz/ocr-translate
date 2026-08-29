@@ -26,7 +26,7 @@ ocr:
 
 capture:
   # built_in: grab the active monitor ourselves and crop it with our own
-  #           zoom/pan/select window. Portable across every X11/Wayland desktop.
+  #           zoom/pan/select window. Portable across every Wayland desktop.
   # external: run `external_command` and let IT do the region selection (a
   #           real live overlay on your actual desktop), then read the image
   #           it leaves on the clipboard. Nicer where available, but depends
@@ -41,16 +41,6 @@ capture:
   external_command: "spectacle -r -b -c"
   # How long to keep polling the clipboard for an image after the command exits.
   external_timeout_secs: 10
-
-hotkey:
-  # Requested global shortcut. On Wayland this is sent to the
-  # org.freedesktop.portal.GlobalShortcuts portal (GNOME 43+ / KDE 6+ honor it,
-  # others may ignore it silently); on X11 it's grabbed directly.
-  # If it doesn't fire on your desktop, bind `ocr-translate capture` yourself
-  # in your compositor/WM's keybinding settings instead.
-  capture_region: "CTRL+ALT+O"
-  enable_portal: true
-  enable_x11: true
 
 popup:
   width: 520

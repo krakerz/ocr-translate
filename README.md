@@ -1,25 +1,26 @@
 # ocr-translate
 
-A small Rust tool for Linux: press a hotkey (or use the tray menu), drag-select
-a region of the screen, and get the OCR'd text translated by an LLM or
-translation API in a popup. Built to work across X11 and Wayland
-(GNOME/KDE/wlroots) without compositor-specific hacks, and the codebase is
-otherwise plain Rust so it also builds on Windows/macOS with reduced
-hotkey/portal/tray support.
+A small Rust tool for Linux: use the tray menu (or bind `ocr-translate
+capture` to a key yourself), drag-select a region of the screen, and get the
+OCR'd text translated by an LLM or translation API in a popup. Targets
+Wayland (GNOME/KDE/wlroots) via the standard xdg-desktop-portal APIs, without
+compositor-specific hacks; the codebase is otherwise plain Rust so it also
+builds on Windows/macOS with reduced portal/tray support. X11 sessions aren't
+supported as a first-class target — see [Known limitations](#known-limitations)
+for the one place X11/XWayland is still used, as an implementation detail.
 
 ## How it works
 
 1. **Capture**: by default, grabs a screenshot of just the monitor the cursor
    is currently on (so a multi-monitor setup never hands OCR a giant combined
-   image) — via the `org.freedesktop.portal.Screenshot` xdg-desktop-portal on
-   Wayland, or a direct X11 grab otherwise. Optionally, an external tool (e.g.
-   KDE's `spectacle`) can do the region selection instead — see
+   image) via the `org.freedesktop.portal.Screenshot` xdg-desktop-portal.
+   Optionally, an external tool (e.g. KDE's `spectacle`) can do the region
+   selection instead — see
    [Alternate capture backend](#alternate-capture-backend-external-tool).
 2. **Select** (built-in backend only): shows that screenshot in a borderless
    window; scroll to zoom, right-drag to pan, and left-drag a rectangle to
-   crop. This sidesteps the fact that neither X11 nor Wayland has one portable
-   "overlay the live desktop" API, and zoom makes it practical to select small
-   text precisely.
+   crop. This sidesteps the fact that Wayland has no portable "overlay the
+   live desktop" API, and zoom makes it practical to select small text precisely.
 3. **OCR**: runs the crop through Tesseract (via `leptess`).
 4. **Translate**: sends the recognized text to a configured backend — an
    OpenAI-compatible chat API (LM Studio, Ollama, OpenAI, DeepSeek, ...),
@@ -33,14 +34,18 @@ hotkey/portal/tray support.
 The app runs in the system tray with a **Capture** / **Live Clipboard
 Translate** / **History** / **Quit** menu (see
 [Live Clipboard Translate](#live-clipboard-translate) for the clipboard-based
-mode), in addition to whichever hotkey mechanism your desktop supports (see below).
+mode). There's no built-in global hotkey — see [Binding a key](#binding-a-key)
+for why, and how to bind one yourself in your DE/compositor instead.
 
 ## Requirements
 
 - Rust toolchain
 - Tesseract + Leptonica dev libraries (`tesseract`, `leptonica` on most distros)
   and at least one language's tessdata installed
-- X11 dev headers (only needed for the X11 capture/hotkey fallback path)
+- X11 dev headers — not for capture (that's portal-only now), but `eframe`'s
+  window backend keeps an X11 fallback compiled in alongside its Wayland
+  backend; also, cursor position and monitor geometry are queried over
+  XWayland (see [Known limitations](#known-limitations))
 - GTK3 + libappindicator (or libayatana-appindicator) dev libraries, for the
   tray icon:
   ```sh
@@ -88,7 +93,6 @@ Key fields:
   LLM-based providers. Template placeholders: `{source_lang}`, `{target_lang}`, `{text}`.
 - `ocr.languages` — Tesseract language code(s), e.g. `eng`, `eng+jpn`.
 - `capture.backend` — `built_in` | `external` (see [Alternate capture backend](#alternate-capture-backend-external-tool)).
-- `hotkey.capture_region` — accelerator string, e.g. `CTRL+ALT+O`.
 - `history.enabled` / `history.max_entries` — see [History](#history).
 
 API keys: prefer `api_key_env: SOME_ENV_VAR` over a literal `api_key` in the
@@ -209,11 +213,6 @@ reloads on change:
   window keeps using the settings it started with until you close and reopen it.
 - The tray's History submenu settings (`tray_menu_entries`) apply on its next
   refresh (a couple of seconds), no restart needed.
-- `hotkey.capture_region` is re-bound live **on X11**. **On Wayland**, the
-  portal-based hotkey session can't be rebound without restarting the app —
-  a log message says so if you edit it while running there; bind
-  `ocr-translate capture` natively in your compositor instead (see above) if
-  you want to avoid restarts entirely.
 - A config file that fails to parse while being edited (e.g. mid-save) is
   logged and ignored — the previous valid config keeps running rather than
   crashing the daemon.
@@ -221,9 +220,8 @@ reloads on change:
 ## Running
 
 ```sh
-# Tray + hotkey daemon (default): sits in the system tray with a
-# Capture / Live Clipboard Translate / History / Quit menu, and also
-# listens for the configured hotkey.
+# Tray daemon (default): sits in the system tray with a
+# Capture / Live Clipboard Translate / History / Quit menu.
 ocr-translate run
 
 # One-shot: capture, crop, OCR, translate, show popup, exit. Useful for
@@ -238,42 +236,34 @@ ocr-translate watch-clipboard
 ocr-translate test-provider --provider openai "Bonjour le monde"
 ```
 
-### Hotkey behavior differs by session type
+### Binding a key
 
-Regardless of which of these applies, the tray's **Capture** menu item always
-works, and running `ocr-translate capture` always works too.
-
-- **X11** (including XWayland): the daemon grabs `hotkey.capture_region`
-  directly. Works out of the box.
-- **Wayland, GNOME 43+ / KDE Plasma 6+**: the daemon requests the shortcut
-  through the `GlobalShortcuts` desktop portal. In practice this portal grants
-  shortcuts to Flatpak/Snap-sandboxed apps; a plain binary run from a terminal
-  gets `NotAllowed: An app id is required` — and, confirmed by testing, wrapping
-  the process in a matching systemd `app-<id>-<random>.scope`/`.service` (the
-  naming convention the portal's own app-id detection looks for) does **not**
-  help either, so this isn't something we can work around from inside the app
-  short of Flatpak-packaging it. Use one of the options below instead.
-- **Wayland, Sway / Hyprland / i3 / anything without that portal**: no app can
-  grab a truly global hotkey either.
-
-Whichever of the above applies, two things always work: the tray's **Capture**
-menu item, and binding a key yourself to run `ocr-translate capture`:
+There's no in-app global hotkey — the only mechanism a Wayland app can use
+for one, the `org.freedesktop.portal.GlobalShortcuts` portal, in practice
+only grants shortcuts to Flatpak/Snap-sandboxed apps: a plain binary run from
+a terminal gets `NotAllowed: An app id is required`, and (confirmed by
+testing) wrapping the process in a matching systemd `app-<id>-<random>.scope`
+doesn't help either — that's not something fixable from inside the app short
+of Flatpak-packaging it. Rather than ship a feature that doesn't work, the
+tray's **Capture** menu item and `ocr-translate capture` are *the* way to
+trigger a capture; bind the latter to a key yourself, natively in your
+DE/compositor (which goes through the compositor's own shortcut system
+directly, not the portal, so it always works):
 
 - **KDE Plasma**: System Settings → Shortcuts → add a custom command shortcut
-  that runs `ocr-translate capture`. This uses KWin's native global shortcut
-  system directly and does not go through the portal at all.
+  that runs `ocr-translate capture`.
+- **GNOME**: Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts.
 - **Sway / Hyprland / i3**: bind it in your compositor config, e.g. for Sway:
   ```
   bindsym $mod+Shift+o exec ocr-translate capture
   ```
-- **GNOME**: Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts.
 
 ### Running as a systemd user service
 
 ```ini
 # ~/.config/systemd/user/ocr-translate.service
 [Unit]
-Description=ocr-translate tray + hotkey daemon
+Description=ocr-translate tray daemon
 
 [Service]
 ExecStart=%h/.cargo/bin/ocr-translate run
@@ -305,13 +295,15 @@ git push origin v0.2.0
 - The crop-selector and popup windows are plain (non-fullscreen, non-overlay)
   windows sized to fit the content — there's no click-through live-desktop
   overlay, since no such API is portable across compositors.
-- The `GlobalShortcuts` portal effectively requires Flatpak/Snap sandboxing in
-  practice; for a plain binary, use the tray menu or bind `ocr-translate
-  capture` natively in your DE/WM instead (see above).
-- Active-monitor detection queries the pointer position over X11/XWayland; on
-  a pure-Wayland session with no XWayland at all, it falls back to the
-  primary monitor (X11 backend) or the full multi-monitor screenshot (portal
-  backend), rather than failing.
+- Active-monitor detection (which monitor to crop the portal's full-desktop
+  screenshot down to) queries the cursor position and monitor layout over
+  XWayland, via a direct XRandR request — not "X11 support", just the only
+  portable way to get either piece of information at all, since Wayland's
+  security model deliberately doesn't expose global cursor position or
+  output layout to arbitrary clients. XWayland is present on effectively
+  every real desktop Wayland session. On a session with no XWayland at all,
+  this falls back to using the full multi-monitor screenshot uncropped,
+  rather than failing.
 - The `external` capture backend detects a fresh capture by diffing the
   clipboard image against what was there before the command ran, so capturing
   the exact same pixels twice in a row reads as "cancelled" the second time —
