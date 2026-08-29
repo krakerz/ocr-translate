@@ -1,8 +1,8 @@
 [package]
 name = "ocr-translate"
-version = "1.1.1"
+version = "1.4.0"
 edition = "2021"
-description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland)"
+description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland) and Windows"
 license = "MIT"
 
 [[bin]]
@@ -27,14 +27,7 @@ leptess = "0.14"
 # turns reqwest::blocking::Client into carrying its own cookie jar so we
 # don't have to parse Set-Cookie/build Cookie headers by hand.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "cookies", "rustls-tls"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
-ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
 tray-icon = { version = "0.19", default-features = false }
-# randr: used to query monitor geometry directly (see src/capture/monitor.rs)
-# instead of depending on xcap, which hangs indefinitely on at least this
-# project's KDE/KWin setup as of 0.9+ (every geometry accessor calls an
-# internal Wayland scale-factor lookup that never returns). See CLAUDE.md.
-x11rb = { version = "0.13", features = ["randr"] }
 eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.28"
 # wayland-data-control: without it, arboard silently uses its X11 backend
@@ -43,19 +36,68 @@ egui = "0.28"
 # testing the `external` capture backend.
 arboard = { version = "3", features = ["wayland-data-control"] }
 chrono = "0.4"
-# 0.8.x fails to build against this system's PipeWire (1.6.8) headers
-# (libspa-sys 0.8.0's bindgen output has an opaque spa_pod_builder struct
-# incompatible with them); 0.10.1 builds cleanly. See src/capture/screencast.rs
-# and CLAUDE.md before bumping — verify a real build, not just `cargo check`.
-pipewire = "0.10"
 # Single-instance lock for `ocr-translate run` (see src/daemon.rs) — an
 # advisory OS file lock (flock on Linux) held for the daemon's whole
 # lifetime, released automatically on exit or crash so there's no stale
 # PID-file cleanup to get wrong.
 fd-lock = "4"
 
+# Linux-only capture stack: xdg-desktop-portal (Screenshot + ScreenCast),
+# direct XRandR/XWayland queries, and PipeWire — see src/capture/{portal,
+# monitor,pointer,screencast}.rs, all gated behind #[cfg(target_os = "linux")]
+# at the `mod` declaration in src/capture/mod.rs. None of this exists on
+# Windows/macOS (no portal, no PipeWire), so it's isolated to its own
+# dependency table rather than compiled unconditionally everywhere.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
+ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
+# randr: used to query monitor geometry directly (see src/capture/monitor.rs)
+# instead of depending on xcap, which hangs indefinitely on at least this
+# project's KDE/KWin setup as of 0.9+ (every geometry accessor calls an
+# internal Wayland scale-factor lookup that never returns). See CLAUDE.md.
+# Confirmed still true as of xcap 0.9.8 (2026): its Linux backend still
+# depends on a `libwayshot-xcap` fork for the Wayland path — the same
+# wayshot-based code the original hang was traced to — so this isn't a
+# stale concern from an old version, it's xcap's current Linux design.
+x11rb = { version = "0.13", features = ["randr"] }
+# 0.8.x fails to build against this system's PipeWire (1.6.8) headers
+# (libspa-sys 0.8.0's bindgen output has an opaque spa_pod_builder struct
+# incompatible with them); 0.10.1 builds cleanly. See src/capture/screencast.rs
+# and CLAUDE.md before bumping — verify a real build, not just `cargo check`.
+pipewire = "0.10"
+
+# Windows-only capture backend — see src/capture/windows_backend.rs. `xcap`
+# is used *only* here, never on Linux (see the x11rb comment above for why):
+# its Windows screenshot path is plain GDI (BitBlt) as long as the `wgc`
+# feature is left disabled, which is deliberate — xcap's opt-in
+# Windows.Graphics.Capture path (`wgc` feature) has real open upstream issues
+# (capture timeouts, COM object lifecycle bugs) that plain GDI sidesteps
+# entirely. `windows` (official Microsoft-maintained bindings, same version
+# xcap itself depends on) is used directly only for `GetCursorPos` — xcap has
+# no cursor-position API of its own, it's a screen-capture library, not an
+# input-query one. Not yet verified on real Windows hardware/CI — see
+# TODO.md before trusting this blindly.
+[target.'cfg(target_os = "windows")'.dependencies]
+xcap = "0.9"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+# Embeds assets/icon.ico as the exe's icon resource on Windows (see
+# build.rs) — so it shows up in Explorer/the taskbar, not just in-app
+# windows/the tray icon (those are set at runtime from src/logo.jpeg via
+# src/icon.rs, unrelated). Deliberately NOT a target-gated dependency table
+# (unlike xcap/windows above): build.rs always compiles for the *host*
+# running the build, not `--target`, so a `[target.'cfg(target_os =
+# "windows")'.build-dependencies]` table would only make this crate
+# available when the host itself is Windows — silently breaking a genuine
+# Linux-host cross-compile for Windows (confirmed by testing: build.rs
+# failed with "unresolved crate `winresource`" under exactly that gating).
+# `winresource` is a real no-op on non-Windows hosts (only depends on the
+# portable `version_check`, confirmed compiling fine on Linux) and its own
+# docs recommend deciding what to do at runtime via `CARGO_CFG_TARGET_OS`
+# instead — see build.rs.
+[build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
 
 [profile.release]
 opt-level = 2
