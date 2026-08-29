@@ -4,6 +4,11 @@ A small tray tool for Linux (Wayland) and Windows: drag-select a region of
 the screen, and get the OCR'd text translated by an LLM or translation API in
 a popup. macOS isn't supported.
 
+> Just want to run it? Grab a prebuilt binary from the
+> [Releases page](../../releases) — see [Installing](#installing). The
+> [Requirements](#requirements) section further down is only for building it
+> yourself from source.
+
 ## How it works
 
 1. **Capture**: grabs a screenshot of the monitor the cursor is on.
@@ -21,13 +26,37 @@ a popup. macOS isn't supported.
 The app runs in the system tray with a **Capture** / **Live Clipboard
 Translate** / **Live Region Translate** / **History** / **Quit** menu.
 
+## Installing
+
+**Prebuilt release** (recommended if you don't want to build it yourself):
+download the archive for your OS from the [Releases page](../../releases),
+extract it, and run `ocr-translate` (`ocr-translate.exe` on Windows). Nothing
+else to install — Tesseract's runtime DLLs (Windows) and English + Japanese
+OCR data (matching the default config's `jpn+eng`) are already bundled
+inside the archive. For a different OCR language, drop its `.traineddata`
+file into the `tessdata` folder next to the binary (or set
+`ocr.tessdata_dir`/`TESSDATA_PREFIX`) — see step 6 below for where to get one.
+Linux still needs Tesseract + Leptonica installed via your distro's package
+manager (see [Requirements](#requirements) below) — that part isn't bundled.
+
+**From source**: see [Requirements](#requirements) below, then:
+
+```sh
+cargo build --release
+```
+
 ## Requirements
 
 ### Linux
 
+Only needed if you're building from source, except the Tesseract/Leptonica
+runtime libraries (first bullet) — those are needed either way, prebuilt
+binary or not, since only the OCR engine itself is a system dependency;
+tessdata is bundled in the release archive (see [Installing](#installing)).
+
+- Tesseract + Leptonica runtime libraries — dev packages if building from
+  source (`tesseract`, `leptonica` on most distros)
 - Rust toolchain
-- Tesseract + Leptonica dev libraries (`tesseract`, `leptonica` on most
-  distros) and at least one language's tessdata installed
 - X11 dev headers (`eframe`'s window backend keeps an X11 fallback compiled
   in; cursor position and monitor geometry are also queried over XWayland)
 - PipeWire dev libraries (`libpipewire-0.3`, e.g. `pipewire-devel` /
@@ -42,6 +71,9 @@ Translate** / **Live Region Translate** / **History** / **Quit** menu.
   ```
 
 ### Windows
+
+Only needed if you're building from source — see [Installing](#installing)
+above if you just want to run the app.
 
 1. **Rust via [rustup](https://rustup.rs), MSVC ABI**:
    ```powershell
@@ -85,12 +117,11 @@ Translate** / **Live Region Translate** / **History** / **Quit** menu.
    trained language data. Download the `.traineddata` file(s) matching
    `ocr.languages` in your config (e.g. `eng.traineddata`) from
    `tesseract-ocr/tessdata_fast` on GitHub (or `tessdata`/`tessdata_best` for
-   higher accuracy), then either set `tessdata_dir` in `config.yaml` to that
-   folder, or set the `TESSDATA_PREFIX` environment variable.
-
-```sh
-cargo build --release
-```
+   higher accuracy), then either drop them in a `tessdata` folder next to
+   `target\release\ocr-translate.exe`, set `tessdata_dir` in `config.yaml` to
+   wherever you put them, or set the `TESSDATA_PREFIX` environment variable.
+   Packaged release archives already bundle English and Japanese (`eng`,
+   `jpn`) — the default config's `jpn+eng`.
 
 ## Configuration
 
@@ -386,6 +417,14 @@ This is automatic — just set the size you actually want.
 It detects a fresh capture by diffing the clipboard image against what was
 there before the command ran, so capturing the exact same pixels twice in a
 row reads as cancelled the second time.
+
+**(Windows) A window fails to open with `egui_glow: OpenGL: egui_glow requires opengl 2.0+`.**
+Your display driver doesn't support hardware OpenGL — common in a VM or
+remote desktop session without GPU passthrough, uncommon on real hardware
+with a normal GPU driver installed. Fix: download a prebuilt software
+OpenGL implementation for Windows (e.g. the `pal1000/mesa-dist-win` project
+on GitHub) and copy its `opengl32.dll` and `libgallium_wgl.dll` into the
+same folder as `ocr-translate.exe`.
 
 ---
 
