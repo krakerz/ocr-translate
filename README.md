@@ -156,6 +156,19 @@ while getting this working, in the order they tend to come up:
    ```
    The packaged release archives from `autobuild.yml` already bundle these
    DLLs alongside the exe, so this step is only needed for a local dev build.
+6. **`tessdata` (Tesseract's trained language data) isn't installed by
+   anything above.** Confirmed by testing: without it, `capture`/etc. fail
+   with `failed to initialize Tesseract (is 'tessdata' for the configured
+   language installed?): TessInitError{-1}`. vcpkg's `tesseract` port only
+   ships the OCR engine library, not the trained data — same as Linux, which
+   also needs "at least one language's tessdata installed" separately (see
+   Linux requirements above), just via a distro package there instead.
+   Download the `.traineddata` file(s) matching `ocr.languages` in your
+   config (e.g. `eng.traineddata`) from the official `tesseract-ocr/tessdata_fast`
+   GitHub repo (smaller/faster models — the usual choice; `tessdata`/
+   `tessdata_best` if you want higher accuracy instead), put them in a
+   folder, then either set `tessdata_dir` in `config.yaml` to that folder or
+   set the `TESSDATA_PREFIX` environment variable to it.
 - Everything else (capture, tray, translate, popups) is either genuinely
   cross-platform already or has a Windows-specific backend — no other native
   library requirement beyond Tesseract/Leptonica right now. Live Region
