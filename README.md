@@ -12,14 +12,15 @@ limitations](#known-limitations) for the one place X11/XWayland is still
 used, as an implementation detail. This is the mature, day-to-day-verified
 platform.
 
-On Windows, one-shot capture has a real backend (via `xcap`) — but it's
-still being verified, and newer than the Linux support: confirmed to
-*compile*, both locally and in CI, but not yet confirmed on real hardware to
-actually produce a correct screenshot end-to-end. Live Region Translate
-isn't implemented on Windows yet (a clear error rather than a crash, if you
-try `watch-region` there). See the Windows [Requirements](#requirements)
-below for the build-environment setup this needed, and `TODO.md` (untracked,
-local) for the full verification status if you're working on this.
+On Windows, one-shot capture (via `xcap`) is now **confirmed working
+end-to-end** — screenshot, OCR, and translation all verified producing
+correct real output on a real (virtualized) Windows 11 machine — though it's
+newer than the Linux support and hasn't been tried on genuine physical
+hardware yet. Live Region Translate isn't implemented on Windows yet (a
+clear error rather than a crash, if you try `watch-region` there). See the
+Windows [Requirements](#requirements) below for the build-environment setup
+this needed, and `TODO.md` (untracked, local) for the full verification
+status if you're working on this.
 
 ## How it works
 
@@ -76,7 +77,7 @@ for why, and how to bind one yourself in your DE/compositor instead.
   sudo apt install libgtk-3-dev libappindicator3-dev  # or libayatana-appindicator3-dev
   ```
 
-### Windows (build verified, real-hardware capture check still in progress — see the note above)
+### Windows (confirmed working end-to-end on a VM — see the note above; not yet tried on physical hardware)
 
 Every step below was hit and confirmed by testing on a real Windows machine
 while getting this working, in the order they tend to come up:
