@@ -195,6 +195,9 @@ impl Default for ProviderConfig {
 }
 
 impl ProviderConfig {
+    /// A blank `api_key` (or a set-but-empty `api_key_env` variable) is
+    /// treated the same as none at all — no `Authorization` header is sent.
+    /// This matters for servers like LM Studio, where an API key is optional.
     pub fn resolve_api_key(&self) -> Option<String> {
         if let Some(env_name) = &self.api_key_env {
             if let Ok(v) = std::env::var(env_name) {
@@ -203,7 +206,7 @@ impl ProviderConfig {
                 }
             }
         }
-        self.api_key.clone()
+        self.api_key.clone().filter(|v| !v.is_empty())
     }
 }
 
