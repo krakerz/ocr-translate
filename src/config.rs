@@ -25,6 +25,7 @@ pub struct AppConfig {
     /// can be sized differently than the live capture-result popup.
     pub history_popup: PopupConfig,
     pub history: HistoryConfig,
+    pub live_translate: LiveTranslateConfig,
     pub prompt: PromptConfig,
     pub active_provider: String,
     /// Tried, in order, if `active_provider` fails (connection error, HTTP
@@ -57,6 +58,7 @@ impl Default for AppConfig {
             popup: PopupConfig::default(),
             history_popup: PopupConfig::default(),
             history: HistoryConfig::default(),
+            live_translate: LiveTranslateConfig::default(),
             prompt: PromptConfig::default(),
             active_provider: "lmstudio".to_string(),
             fallback_providers: Vec::new(),
@@ -206,6 +208,33 @@ impl Default for HistoryConfig {
             enabled: true,
             max_entries: 50,
             tray_menu_entries: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct LiveTranslateConfig {
+    pub width: f32,
+    pub height: f32,
+    pub font_size: f32,
+    pub always_on_top: bool,
+    /// Initial state of the popup's "Show source" toggle; the user can
+    /// still flip it per-session, this is just the starting point.
+    pub show_source_by_default: bool,
+    /// How often to check whether the clipboard's text changed.
+    pub poll_interval_ms: u64,
+}
+
+impl Default for LiveTranslateConfig {
+    fn default() -> Self {
+        Self {
+            width: 480.0,
+            height: 360.0,
+            font_size: 16.0,
+            always_on_top: true,
+            show_source_by_default: true,
+            poll_interval_ms: 500,
         }
     }
 }
@@ -406,8 +435,9 @@ fn load_yaml(path: &Path) -> Result<AppConfig> {
 }
 
 /// `.conf` files use INI syntax. Top-level scalar sections (`[general]`, `[ocr]`,
-/// `[capture]`, `[hotkey]`, `[popup]`, `[history_popup]`, `[history]`, `[prompt]`)
-/// map onto the matching struct fields; any section named `[provider.<name>]` becomes an
+/// `[capture]`, `[hotkey]`, `[popup]`, `[history_popup]`, `[history]`,
+/// `[live_translate]`, `[prompt]`) map onto the matching struct fields; any
+/// section named `[provider.<name>]` becomes an
 /// entry in `providers`, e.g.:
 ///
 /// ```ini
@@ -528,6 +558,19 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 cfg.history.max_entries = get_usize("max_entries", cfg.history.max_entries);
                 cfg.history.tray_menu_entries =
                     get_usize("tray_menu_entries", cfg.history.tray_menu_entries);
+            }
+            "live_translate" => {
+                cfg.live_translate.width = get_f32("width", cfg.live_translate.width);
+                cfg.live_translate.height = get_f32("height", cfg.live_translate.height);
+                cfg.live_translate.font_size = get_f32("font_size", cfg.live_translate.font_size);
+                cfg.live_translate.always_on_top =
+                    get_bool("always_on_top", cfg.live_translate.always_on_top);
+                cfg.live_translate.show_source_by_default = get_bool(
+                    "show_source_by_default",
+                    cfg.live_translate.show_source_by_default,
+                );
+                cfg.live_translate.poll_interval_ms =
+                    get_u64("poll_interval_ms", cfg.live_translate.poll_interval_ms);
             }
             "prompt" => {
                 if let Some(v) = get("system") {

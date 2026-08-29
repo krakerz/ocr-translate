@@ -30,8 +30,10 @@ hotkey/portal/tray support.
    successful translation is also recorded to a local history — see
    [History](#history).
 
-The app runs in the system tray with a **Capture** / **History** / **Quit**
-menu, in addition to whichever hotkey mechanism your desktop supports (see below).
+The app runs in the system tray with a **Capture** / **Live Clipboard
+Translate** / **History** / **Quit** menu (see
+[Live Clipboard Translate](#live-clipboard-translate) for the clipboard-based
+mode), in addition to whichever hotkey mechanism your desktop supports (see below).
 
 ## Requirements
 
@@ -171,16 +173,40 @@ Reopened history entries use the separate `history_popup` config section
 so you can size the history viewer differently than the live capture-result
 popup, e.g. larger for comfortably re-reading older entries.
 
+## Live Clipboard Translate
+
+Doesn't touch the screen at all — instead it watches the *clipboard*: copy
+some text anywhere (a browser, a terminal, another app), and a popup shows
+its translation within `live_translate.poll_interval_ms` (default 0.5s).
+Copy something else and the same popup updates in place; copying the exact
+same text again doesn't retranslate. Deliberately **never recorded to
+history** — it's meant for quick, disposable lookups, not a log of what you
+translated.
+
+Start it from the tray's **Live Clipboard Translate** menu item, or:
+
+```sh
+ocr-translate watch-clipboard
+```
+
+The popup has a **Show source** checkbox to toggle the original text on/off
+(only the translation stays visible when unchecked) — its initial state
+comes from `live_translate.show_source_by_default`. Sizing/behavior is
+config-only, its own separate section (`live_translate`, same shape as
+`popup` plus `show_source_by_default` and `poll_interval_ms`).
+
 ## Config hot-reload
 
 While `ocr-translate run` is active, editing the config file takes effect
 without restarting it — a background watcher polls it every ~2 seconds and
 reloads on change:
 
-- Anything used by a fresh capture (providers, prompt, OCR, popup sizes,
-  capture backend, history settings, ...) applies from the *next* capture
-  onward — each capture already runs in its own process that reads the
-  config file fresh, so this was already true before hot-reload existed.
+- Anything used by a fresh capture or a new Live Clipboard Translate window
+  (providers, prompt, OCR, popup sizes, capture backend, history settings,
+  `live_translate.*`, ...) applies the next time you trigger one — each runs
+  in its own process that reads the config file fresh, so this was already
+  true before hot-reload existed. An *already-open* Live Clipboard Translate
+  window keeps using the settings it started with until you close and reopen it.
 - The tray's History submenu settings (`tray_menu_entries`) apply on its next
   refresh (a couple of seconds), no restart needed.
 - `hotkey.capture_region` is re-bound live **on X11**. **On Wayland**, the
@@ -196,12 +222,17 @@ reloads on change:
 
 ```sh
 # Tray + hotkey daemon (default): sits in the system tray with a
-# Capture / Quit menu, and also listens for the configured hotkey.
+# Capture / Live Clipboard Translate / History / Quit menu, and also
+# listens for the configured hotkey.
 ocr-translate run
 
 # One-shot: capture, crop, OCR, translate, show popup, exit. Useful for
 # binding to a key yourself (see below) or for scripting.
 ocr-translate capture
+
+# Watch the clipboard and show a live-updating translation popup (see
+# Live Clipboard Translate above). Never recorded to history.
+ocr-translate watch-clipboard
 
 # Sanity-check a provider without touching the screen:
 ocr-translate test-provider --provider openai "Bonjour le monde"

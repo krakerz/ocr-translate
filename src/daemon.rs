@@ -13,6 +13,7 @@ pub enum DaemonEvent {
     Capture,
     ShowHistory(usize),
     ClearHistory,
+    WatchClipboard,
     Quit,
 }
 
@@ -90,6 +91,11 @@ pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
                     tracing::error!("failed to clear history: {e:#}");
                 }
             }
+            DaemonEvent::WatchClipboard => {
+                if let Err(e) = spawn_subcommand(config_path.as_deref(), "watch-clipboard", None) {
+                    tracing::error!("failed to launch clipboard watcher: {e:#}");
+                }
+            }
             DaemonEvent::Quit => {
                 tracing::info!("quit requested from tray menu");
                 break;
@@ -113,8 +119,22 @@ fn spawn_subcommand(
     if let Some(path) = config_path {
         cmd.arg("--config").arg(path);
     }
-    cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .with_context(|| format!("failed to spawn `ocr-translate {subcommand}`"))?;
+    // Reap it once it exits instead of leaving a zombie: `Child`'s Drop impl
+    // does not call wait() (that would risk blocking), and this daemon never
+    // otherwise waits on its children, so every capture/show-history/
+    // watch-clipboard spawned over a long-running session would otherwise
+    // accumulate as a <defunct> process (confirmed happening in practice).
+    let subcommand = subcommand.to_string();
+    std::thread::spawn(move || match child.wait() {
+        Ok(status) if !status.success() => {
+            tracing::warn!("`ocr-translate {subcommand}` exited with {status}");
+        }
+        Ok(_) => {}
+        Err(e) => tracing::debug!("failed to wait on `ocr-translate {subcommand}`: {e}"),
+    });
     Ok(())
 }
 

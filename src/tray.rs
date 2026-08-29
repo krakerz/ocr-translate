@@ -9,12 +9,14 @@ use crate::daemon::DaemonEvent;
 use crate::history::HistoryEntry;
 
 const CAPTURE_ID: &str = "capture";
+const WATCH_CLIPBOARD_ID: &str = "watch-clipboard";
 const QUIT_ID: &str = "quit";
 const CLEAR_HISTORY_ID: &str = "history:clear";
 const HISTORY_ID_PREFIX: &str = "history:";
 
-/// Builds the tray icon with a "Capture" / "History" / "Quit" menu and
-/// starts forwarding clicks into `tx`. On Linux this needs a live GTK main
+/// Builds the tray icon with a "Capture" / "Live Clipboard Translate" /
+/// "History" / "Quit" menu and starts forwarding clicks into `tx`. On Linux
+/// this needs a live GTK main
 /// loop, so tray setup, menu refresh, and the loop all run on one dedicated
 /// background thread; a second thread just blocks on the (thread-independent)
 /// menu event channel and forwards matches into the daemon's event channel.
@@ -45,6 +47,8 @@ pub fn spawn(tx: Sender<DaemonEvent>, cfg: Arc<RwLock<AppConfig>>) {
             let id: &str = event.id.as_ref();
             if id == CAPTURE_ID {
                 let _ = tx.send(DaemonEvent::Capture);
+            } else if id == WATCH_CLIPBOARD_ID {
+                let _ = tx.send(DaemonEvent::WatchClipboard);
             } else if id == QUIT_ID {
                 let _ = tx.send(DaemonEvent::Quit);
             } else if id == CLEAR_HISTORY_ID {
@@ -62,6 +66,12 @@ pub fn spawn(tx: Sender<DaemonEvent>, cfg: Arc<RwLock<AppConfig>>) {
 fn build_menu(history: &[HistoryEntry]) -> anyhow::Result<Menu> {
     let menu = Menu::new();
     menu.append(&MenuItem::with_id(CAPTURE_ID, "Capture region", true, None))?;
+    menu.append(&MenuItem::with_id(
+        WATCH_CLIPBOARD_ID,
+        "Live Clipboard Translate",
+        true,
+        None,
+    ))?;
 
     let history_menu = Submenu::new("History", true);
     if history.is_empty() {

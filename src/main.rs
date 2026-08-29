@@ -4,6 +4,7 @@ mod daemon;
 mod history;
 mod hotkey;
 mod icon;
+mod live_translate;
 mod ocr;
 mod popup;
 mod translate;
@@ -54,6 +55,10 @@ enum Command {
     ShowHistory { index: usize },
     /// Delete all saved history.
     ClearHistory,
+    /// Watch the clipboard and show a live-updating translation popup: copy
+    /// something, see it translated; copy something else, it updates in
+    /// place. Never recorded to history.
+    WatchClipboard,
     /// Reset the config file(s) in the default config directory to the
     /// bundled example. Config is created automatically on first run, so
     /// this is only needed to restore defaults.
@@ -89,6 +94,7 @@ fn main() -> Result<()> {
         Command::Capture => run_capture_cycle(&cfg),
         Command::TestProvider { provider, text } => test_provider(&cfg, provider, &text),
         Command::ShowHistory { index } => show_history(&cfg, index),
+        Command::WatchClipboard => live_translate::run(&cfg),
         Command::ClearHistory | Command::InitConfig { .. } => unreachable!("handled above"),
     }
 }
