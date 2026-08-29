@@ -3401,7 +3401,7 @@ dependencies = [
 
 [[package]]
 name = "ocr-translate"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3412,7 +3412,6 @@ dependencies = [
  "eframe",
  "egui",
  "fd-lock",
- "futures-util",
  "gtk",
  "image",
  "leptess",
@@ -3422,7 +3421,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",

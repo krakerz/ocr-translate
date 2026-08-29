@@ -36,7 +36,8 @@ jobs:
             libtesseract-dev libleptonica-dev \
             libgtk-3-dev libayatana-appindicator3-dev \
             libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxrandr-dev libxi-dev libxcursor-dev libxkbcommon-dev libwayland-dev
+            libxrandr-dev libxi-dev libxcursor-dev libxkbcommon-dev libwayland-dev \
+            libpipewire-0.3-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
