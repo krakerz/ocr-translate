@@ -64,7 +64,10 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
     eframe::run_native(
         "ocr-translate-live",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("live translate window failed: {e}"))?;
     Ok(())

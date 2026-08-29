@@ -26,7 +26,10 @@ pub fn show_result(original: &str, translated: &str, cfg: &PopupConfig) -> Resul
     eframe::run_native(
         "ocr-translate-popup",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("popup window failed: {e}"))?;
     Ok(())
@@ -47,7 +50,10 @@ pub fn show_error(message: &str) -> Result<()> {
     eframe::run_native(
         "ocr-translate-error",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("error window failed: {e}"))?;
     Ok(())

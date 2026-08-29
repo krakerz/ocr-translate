@@ -46,7 +46,10 @@ pub fn select_crop(image: &DynamicImage) -> Result<Option<DynamicImage>> {
     eframe::run_native(
         "ocr-translate-selector",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("crop selector window failed: {e}"))?;
 

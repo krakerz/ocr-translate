@@ -1,6 +1,7 @@
 mod capture;
 mod config;
 mod daemon;
+mod fonts;
 mod history;
 mod hotkey;
 mod icon;
