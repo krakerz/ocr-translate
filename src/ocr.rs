@@ -1,8 +1,27 @@
+use std::sync::Mutex;
+
 use anyhow::{Context, Result};
 use image::DynamicImage;
 use leptess::{LepTess, Variable};
 
 use crate::config::OcrConfig;
+
+/// Serializes every call into Tesseract, process-wide. Tesseract's C++ API
+/// has real, reported concurrency problems — users have seen intermittent
+/// crashes, deadlocks, and data corruption from multiple threads calling
+/// into it at once, *even* with a separate `TessBaseAPI` instance per
+/// thread and their own external mutex around it (confirmed via
+/// tesseract-ocr/tesseract#4281 — external locking alone wasn't reported as
+/// sufficient there either, though a single process-wide lock like this one
+/// is the straightforward fix and hasn't been contradicted). The one place
+/// in this codebase two threads can genuinely call into Tesseract at the
+/// same time: Live Region Translate's background watcher thread polling
+/// regions, concurrently with a "Quick Capture" running on the main thread
+/// — matches a real hang reported in exactly that scenario. `preprocess`/
+/// `encode_png` (plain image processing, no Tesseract involved) deliberately
+/// happen *before* this lock is taken in `recognize`, so only the actual
+/// Tesseract calls are serialized, not the image prep around them.
+static OCR_LOCK: Mutex<()> = Mutex::new(());
 
 /// Runs Tesseract OCR over a captured region and returns the recognized text, trimmed.
 pub fn recognize(image: &DynamicImage, cfg: &OcrConfig) -> Result<String> {
@@ -11,6 +30,13 @@ pub fn recognize(image: &DynamicImage, cfg: &OcrConfig) -> Result<String> {
     } else {
         image.clone()
     };
+    let rgb = processed.to_rgb8();
+    let png = encode_png(&rgb)?;
+
+    // A prior OCR call panicking while holding this lock shouldn't wedge
+    // every OCR call from then on — recover the guard despite poisoning
+    // rather than `.unwrap()`ing into a permanent lockup.
+    let _guard = OCR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let tessdata_dir = cfg.tessdata_dir.clone().or_else(bundled_tessdata_dir);
     let mut lt = LepTess::new(tessdata_dir.as_deref(), &cfg.languages).context(
@@ -22,8 +48,7 @@ pub fn recognize(image: &DynamicImage, cfg: &OcrConfig) -> Result<String> {
             .context("failed to set Tesseract page segmentation mode")?;
     }
 
-    let rgb = processed.to_rgb8();
-    lt.set_image_from_mem(&encode_png(&rgb)?)
+    lt.set_image_from_mem(&png)
         .context("failed to hand the captured image to Tesseract")?;
 
     let text = lt.get_utf8_text().context("Tesseract OCR failed")?;

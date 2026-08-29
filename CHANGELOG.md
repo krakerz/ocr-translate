@@ -8,6 +8,15 @@ Each entry is a `## [version] - date` header (used by
 `.github/workflows/autobuild.yml` to pull the matching section into that
 version's GitHub Release notes — keep that format so it stays parseable).
 
+## [1.10.1] - 2026-08-29
+
+### Fixed
+
+- A real hang from Live Region Translate's Quick Capture running at the
+  same time as its background region-watching thread — both could call
+  into Tesseract concurrently, which its C++ API isn't safe for. All
+  Tesseract calls are now serialized process-wide.
+
 ## [1.10.0] - 2026-08-29
 
 ### Added
