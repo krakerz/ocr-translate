@@ -387,19 +387,6 @@ WantedBy=default.target
 systemctl --user enable --now ocr-translate.service
 ```
 
-## Releasing
-
-Pushing a tag like `v0.2.0` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which builds the Linux release binary, packages it into a tarball (with
-`README.md`, `LICENSE`, and `config/`), and opens a **draft** GitHub Release
-with auto-generated notes and the tarball attached. Review the draft on the
-repo's Releases page and publish it manually when it's ready.
-
-```sh
-git tag v0.2.0
-git push origin v0.2.0
-```
-
 ## Known limitations
 
 - The crop-selector and popup windows are plain (non-fullscreen, non-overlay)
