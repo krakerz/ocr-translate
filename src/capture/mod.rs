@@ -10,14 +10,45 @@ pub mod screencast;
 mod selector;
 #[cfg(target_os = "windows")]
 mod windows_backend;
+#[cfg(target_os = "windows")]
+mod windows_video;
 
 use anyhow::Result;
 use image::DynamicImage;
 
-// select_region_rect is only called from live_region.rs, which is Linux-only
-// (see main.rs) — unused on other platforms.
-#[cfg_attr(not(target_os = "linux"), allow(unused_imports))]
 pub use selector::{select_crop, select_region_rect};
+
+/// The continuous-capture session Live Region Translate (`watch-region`)
+/// polls for frames — a single per-OS implementation aliased under one
+/// name, same `#[cfg]`-dispatch approach as `grab_active_monitor`/
+/// `primary_monitor` below rather than a trait, since there's exactly one
+/// implementation per OS and no runtime switching needed.
+///
+/// - Linux: `screencast::ScreenCastSession`, a `org.freedesktop.portal.ScreenCast`
+///   + PipeWire session.
+/// - Windows: `windows_video::RegionSession`, an `xcap` `VideoRecorder`
+///   session (DXGI Desktop Duplication).
+/// - Elsewhere: a stub below whose `start()` returns a clear "not
+///   implemented on this OS yet" error, matching `grab_active_monitor`'s
+///   not-linux-not-windows arm.
+#[cfg(target_os = "linux")]
+pub use screencast::ScreenCastSession as RegionSession;
+#[cfg(target_os = "windows")]
+pub use windows_video::RegionSession;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub struct RegionSession;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+impl RegionSession {
+    pub fn start() -> Result<Self> {
+        anyhow::bail!("Live Region Translate isn't implemented on this OS yet — see TODO.md")
+    }
+
+    pub fn latest_frame(&self) -> Option<image::RgbaImage> {
+        None
+    }
+}
 
 use crate::config::{CaptureBackend, CaptureConfig, CaptureWindowConfig};
 

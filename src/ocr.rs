@@ -12,7 +12,8 @@ pub fn recognize(image: &DynamicImage, cfg: &OcrConfig) -> Result<String> {
         image.clone()
     };
 
-    let mut lt = LepTess::new(cfg.tessdata_dir.as_deref(), &cfg.languages).context(
+    let tessdata_dir = cfg.tessdata_dir.clone().or_else(bundled_tessdata_dir);
+    let mut lt = LepTess::new(tessdata_dir.as_deref(), &cfg.languages).context(
         "failed to initialize Tesseract (is `tessdata` for the configured language installed?)",
     )?;
 
@@ -27,6 +28,22 @@ pub fn recognize(image: &DynamicImage, cfg: &OcrConfig) -> Result<String> {
 
     let text = lt.get_utf8_text().context("Tesseract OCR failed")?;
     Ok(text.trim().to_string())
+}
+
+/// Packaged release archives (both Linux and Windows, see `autobuild.yml`)
+/// bundle a `tessdata/` folder next to the binary, so the app works with the
+/// default `jpn+eng` languages out of the box, no manual setup or system
+/// package needed. Only used as a fallback when `ocr.tessdata_dir` isn't set
+/// explicitly, so a user who already has `TESSDATA_PREFIX`/`tessdata_dir`
+/// configured (e.g. relying on a distro's own Tesseract data package on
+/// Linux) isn't overridden. Resolved from `current_exe()`'s directory rather
+/// than a bare relative path, since a relative path depends on the
+/// process's current working directory (which the tray's spawned
+/// subcommands, or a hotkey binding launching from an arbitrary directory,
+/// can't be relied on to be the binary's own directory).
+fn bundled_tessdata_dir() -> Option<String> {
+    let dir = std::env::current_exe().ok()?.parent()?.join("tessdata");
+    dir.is_dir().then(|| dir.to_string_lossy().into_owned())
 }
 
 fn encode_png(rgb: &image::RgbImage) -> Result<Vec<u8>> {

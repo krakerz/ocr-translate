@@ -12,13 +12,21 @@ use super::MonitorRect;
 ///
 /// Not yet verified against a real Windows machine/CI — see TODO.md.
 pub fn grab_active_monitor() -> Result<DynamicImage> {
-    let from_cursor = cursor_position().and_then(|(x, y)| xcap::Monitor::from_point(x, y).ok());
-    let monitor = match from_cursor {
-        Some(m) => m,
-        None => primary_monitor_handle()?,
-    };
+    let monitor = active_monitor()?;
     let image = monitor.capture_image().context("xcap screenshot failed")?;
     Ok(DynamicImage::ImageRgba8(image))
+}
+
+/// The monitor the cursor is currently on, falling back to the primary (or
+/// first) monitor — shared by one-shot capture above and the Live Region
+/// Translate video session (`windows_video.rs`), so both pick the same
+/// monitor the same way.
+pub(crate) fn active_monitor() -> Result<xcap::Monitor> {
+    let from_cursor = cursor_position().and_then(|(x, y)| xcap::Monitor::from_point(x, y).ok());
+    match from_cursor {
+        Some(m) => Ok(m),
+        None => primary_monitor_handle(),
+    }
 }
 
 /// Falls back to the primary monitor (or the first one) when the cursor
