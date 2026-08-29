@@ -1,6 +1,9 @@
 use std::sync::mpsc::Sender;
+use std::sync::Mutex;
 
 use anyhow::Result;
+use global_hotkey::hotkey::HotKey;
+use global_hotkey::GlobalHotKeyManager;
 
 use crate::daemon::DaemonEvent;
 
@@ -9,13 +12,37 @@ pub(crate) fn is_wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
 }
 
-pub(crate) fn spawn_x11_listener(tx: Sender<DaemonEvent>, accelerator: &str) -> Result<()> {
-    use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+/// Lets the config watcher re-bind the X11 hotkey live, without restarting
+/// the daemon, when `hotkey.capture_region` changes on disk.
+pub(crate) struct X11HotkeyHandle {
+    manager: &'static GlobalHotKeyManager,
+    current: Mutex<HotKey>,
+}
+
+impl X11HotkeyHandle {
+    /// No-ops if `accelerator` parses to the same hotkey already registered.
+    pub(crate) fn update(&self, accelerator: &str) -> Result<()> {
+        let new_hotkey = parse_accelerator(accelerator)?;
+        let mut current = self.current.lock().unwrap();
+        if *current == new_hotkey {
+            return Ok(());
+        }
+        self.manager.unregister(*current)?;
+        self.manager.register(new_hotkey)?;
+        *current = new_hotkey;
+        Ok(())
+    }
+}
+
+pub(crate) fn spawn_x11_listener(
+    tx: Sender<DaemonEvent>,
+    accelerator: &str,
+) -> Result<X11HotkeyHandle> {
+    use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 
     let hotkey = parse_accelerator(accelerator)?;
-    // Leaked intentionally: the manager must live for the process lifetime,
-    // and this runs exactly once per daemon start.
-    let manager = Box::leak(Box::new(GlobalHotKeyManager::new()?));
+    // Leaked intentionally: the manager must live for the process lifetime.
+    let manager: &'static GlobalHotKeyManager = Box::leak(Box::new(GlobalHotKeyManager::new()?));
     manager.register(hotkey)?;
 
     std::thread::spawn(move || {
@@ -28,7 +55,10 @@ pub(crate) fn spawn_x11_listener(tx: Sender<DaemonEvent>, accelerator: &str) -> 
             }
         }
     });
-    Ok(())
+    Ok(X11HotkeyHandle {
+        manager,
+        current: Mutex::new(hotkey),
+    })
 }
 
 fn parse_accelerator(accelerator: &str) -> Result<global_hotkey::hotkey::HotKey> {

@@ -1,9 +1,10 @@
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, RwLock};
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::TrayIconBuilder;
 
-use crate::config::HistoryConfig;
+use crate::config::AppConfig;
 use crate::daemon::DaemonEvent;
 use crate::history::HistoryEntry;
 
@@ -21,17 +22,19 @@ const HISTORY_ID_PREFIX: &str = "history:";
 /// The History submenu is rebuilt periodically (every 2 seconds) rather than
 /// once at startup: captures run in a separate process (see `daemon::run`),
 /// so this process only learns about new entries by re-reading
-/// `history.jsonl` from disk.
-pub fn spawn(tx: Sender<DaemonEvent>, history_cfg: HistoryConfig) {
+/// `history.jsonl` from disk. Each refresh also reads `cfg.history` fresh, so
+/// e.g. `tray_menu_entries` edits in the config file take effect live too —
+/// see `daemon::watch_config`.
+pub fn spawn(tx: Sender<DaemonEvent>, cfg: Arc<RwLock<AppConfig>>) {
     #[cfg(target_os = "linux")]
     std::thread::spawn(move || {
-        if let Err(e) = run_gtk_tray(history_cfg) {
+        if let Err(e) = run_gtk_tray(cfg) {
             tracing::warn!("tray icon unavailable ({e}); use `ocr-translate capture` instead");
         }
     });
     #[cfg(not(target_os = "linux"))]
     std::thread::spawn(move || {
-        if let Err(e) = run_native_tray(history_cfg) {
+        if let Err(e) = run_native_tray(cfg) {
             tracing::warn!("tray icon unavailable ({e}); use `ocr-translate capture` instead");
         }
     });
@@ -111,11 +114,15 @@ fn fingerprint(history: &[HistoryEntry]) -> String {
     s
 }
 
+fn tray_menu_entries(cfg: &RwLock<AppConfig>) -> usize {
+    cfg.read().unwrap().history.tray_menu_entries
+}
+
 #[cfg(target_os = "linux")]
-fn run_gtk_tray(history_cfg: HistoryConfig) -> anyhow::Result<()> {
+fn run_gtk_tray(cfg: Arc<RwLock<AppConfig>>) -> anyhow::Result<()> {
     gtk::init()?;
 
-    let initial = crate::history::load_recent(history_cfg.tray_menu_entries).unwrap_or_default();
+    let initial = crate::history::load_recent(tray_menu_entries(&cfg)).unwrap_or_default();
     let mut last_fingerprint = fingerprint(&initial);
     let menu = build_menu(&initial)?;
 
@@ -126,7 +133,7 @@ fn run_gtk_tray(history_cfg: HistoryConfig) -> anyhow::Result<()> {
         .build()?;
 
     gtk::glib::source::timeout_add_seconds_local(2, move || {
-        match crate::history::load_recent(history_cfg.tray_menu_entries) {
+        match crate::history::load_recent(tray_menu_entries(&cfg)) {
             Ok(entries) => {
                 let current = fingerprint(&entries);
                 if current != last_fingerprint {
@@ -147,8 +154,8 @@ fn run_gtk_tray(history_cfg: HistoryConfig) -> anyhow::Result<()> {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn run_native_tray(history_cfg: HistoryConfig) -> anyhow::Result<()> {
-    let initial = crate::history::load_recent(history_cfg.tray_menu_entries).unwrap_or_default();
+fn run_native_tray(cfg: Arc<RwLock<AppConfig>>) -> anyhow::Result<()> {
+    let initial = crate::history::load_recent(tray_menu_entries(&cfg)).unwrap_or_default();
     let mut last_fingerprint = fingerprint(&initial);
     let menu = build_menu(&initial)?;
 
@@ -160,7 +167,7 @@ fn run_native_tray(history_cfg: HistoryConfig) -> anyhow::Result<()> {
 
     loop {
         std::thread::sleep(std::time::Duration::from_secs(2));
-        match crate::history::load_recent(history_cfg.tray_menu_entries) {
+        match crate::history::load_recent(tray_menu_entries(&cfg)) {
             Ok(entries) => {
                 let current = fingerprint(&entries);
                 if current != last_fingerprint {

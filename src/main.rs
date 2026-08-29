@@ -173,6 +173,6 @@ fn show_history(cfg: &AppConfig, index: usize) -> Result<()> {
     let Some(entry) = history::get(index)? else {
         bail!("no history entry at index {index}");
     };
-    popup::show_result(&entry.original, &entry.translated, &cfg.popup)?;
+    popup::show_result(&entry.original, &entry.translated, &cfg.history_popup)?;
     Ok(())
 }

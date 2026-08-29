@@ -20,6 +20,10 @@ pub struct AppConfig {
     pub capture: CaptureConfig,
     pub hotkey: HotkeyConfig,
     pub popup: PopupConfig,
+    /// Sizing/behavior for the popup shown when reopening a history entry
+    /// (tray History submenu / `show-history`) — separate from `popup` so it
+    /// can be sized differently than the live capture-result popup.
+    pub history_popup: PopupConfig,
     pub history: HistoryConfig,
     pub prompt: PromptConfig,
     pub active_provider: String,
@@ -51,6 +55,7 @@ impl Default for AppConfig {
             capture: CaptureConfig::default(),
             hotkey: HotkeyConfig::default(),
             popup: PopupConfig::default(),
+            history_popup: PopupConfig::default(),
             history: HistoryConfig::default(),
             prompt: PromptConfig::default(),
             active_provider: "lmstudio".to_string(),
@@ -302,27 +307,35 @@ pub fn app_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join(APP_DIR_NAME))
 }
 
+/// The file that [`load`] would read (without reading it) — the explicit
+/// path if given, otherwise whichever of `config.yaml`/`config.yml`/
+/// `config.conf` in [`app_config_dir`] exists. Used both by `load` and by the
+/// daemon's config-file watcher (see `daemon::watch_config`), so both agree
+/// on which file is "the" config.
+pub fn resolve_path(explicit_path: Option<&Path>) -> Option<PathBuf> {
+    if let Some(path) = explicit_path {
+        return Some(path.to_path_buf());
+    }
+    let dir = app_config_dir()?;
+    ["config.yaml", "config.yml", "config.conf"]
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+}
+
 /// Loads config from an explicit path if given, otherwise from
 /// `config.yaml`/`config.yml`/`config.conf` in [`app_config_dir`]. If none of
 /// those exist yet (first run), the directory and a starter `config.yaml`
 /// (plus reference `config.example.yaml`/`config.example.conf` copies) are
 /// created automatically, and the new `config.yaml` is loaded.
 pub fn load(explicit_path: Option<&Path>) -> Result<AppConfig> {
-    if let Some(path) = explicit_path {
-        return load_file(path)
+    if let Some(path) = resolve_path(explicit_path) {
+        return load_file(&path)
             .with_context(|| format!("failed to load config from {}", path.display()));
     }
 
     let dir =
         app_config_dir().context("could not determine a config directory for this platform")?;
-    for name in ["config.yaml", "config.yml", "config.conf"] {
-        let path = dir.join(name);
-        if path.is_file() {
-            return load_file(&path)
-                .with_context(|| format!("failed to load config from {}", path.display()));
-        }
-    }
-
     let path = create_default_config(&dir)?;
     load_file(&path)
         .with_context(|| format!("failed to load newly created config at {}", path.display()))
@@ -393,8 +406,8 @@ fn load_yaml(path: &Path) -> Result<AppConfig> {
 }
 
 /// `.conf` files use INI syntax. Top-level scalar sections (`[general]`, `[ocr]`,
-/// `[capture]`, `[hotkey]`, `[popup]`, `[history]`, `[prompt]`) map onto the
-/// matching struct fields; any section named `[provider.<name>]` becomes an
+/// `[capture]`, `[hotkey]`, `[popup]`, `[history_popup]`, `[history]`, `[prompt]`)
+/// map onto the matching struct fields; any section named `[provider.<name>]` becomes an
 /// entry in `providers`, e.g.:
 ///
 /// ```ini
@@ -500,6 +513,15 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 cfg.popup.font_size = get_f32("font_size", cfg.popup.font_size);
                 cfg.popup.always_on_top = get_bool("always_on_top", cfg.popup.always_on_top);
                 cfg.popup.auto_close_secs = get_u64("auto_close_secs", cfg.popup.auto_close_secs);
+            }
+            "history_popup" => {
+                cfg.history_popup.width = get_f32("width", cfg.history_popup.width);
+                cfg.history_popup.height = get_f32("height", cfg.history_popup.height);
+                cfg.history_popup.font_size = get_f32("font_size", cfg.history_popup.font_size);
+                cfg.history_popup.always_on_top =
+                    get_bool("always_on_top", cfg.history_popup.always_on_top);
+                cfg.history_popup.auto_close_secs =
+                    get_u64("auto_close_secs", cfg.history_popup.auto_close_secs);
             }
             "history" => {
                 cfg.history.enabled = get_bool("enabled", cfg.history.enabled);

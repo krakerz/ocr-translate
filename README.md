@@ -166,6 +166,32 @@ ocr-translate show-history 0    # 0 = most recent
 ocr-translate clear-history
 ```
 
+Reopened history entries use the separate `history_popup` config section
+(width/height/font_size/always_on_top/auto_close_secs) rather than `popup` —
+so you can size the history viewer differently than the live capture-result
+popup, e.g. larger for comfortably re-reading older entries.
+
+## Config hot-reload
+
+While `ocr-translate run` is active, editing the config file takes effect
+without restarting it — a background watcher polls it every ~2 seconds and
+reloads on change:
+
+- Anything used by a fresh capture (providers, prompt, OCR, popup sizes,
+  capture backend, history settings, ...) applies from the *next* capture
+  onward — each capture already runs in its own process that reads the
+  config file fresh, so this was already true before hot-reload existed.
+- The tray's History submenu settings (`tray_menu_entries`) apply on its next
+  refresh (a couple of seconds), no restart needed.
+- `hotkey.capture_region` is re-bound live **on X11**. **On Wayland**, the
+  portal-based hotkey session can't be rebound without restarting the app —
+  a log message says so if you edit it while running there; bind
+  `ocr-translate capture` natively in your compositor instead (see above) if
+  you want to avoid restarts entirely.
+- A config file that fails to parse while being edited (e.g. mid-save) is
+  logged and ignored — the previous valid config keeps running rather than
+  crashing the daemon.
+
 ## Running
 
 ```sh

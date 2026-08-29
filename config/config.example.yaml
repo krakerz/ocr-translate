@@ -60,6 +60,17 @@ popup:
   # Auto-dismiss the result popup after N seconds; 0 = stay open until closed.
   auto_close_secs: 0
 
+# Popup shown when reopening a history entry (tray History submenu /
+# `ocr-translate show-history`) — separate from `popup` above so you can size
+# it differently than the live capture-result popup, e.g. larger for
+# comfortably re-reading older entries.
+history_popup:
+  width: 520
+  height: 380
+  font_size: 16
+  always_on_top: true
+  auto_close_secs: 0
+
 history:
   # Record each successful translation to history.jsonl next to this file.
   enabled: true
