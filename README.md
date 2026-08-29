@@ -27,9 +27,11 @@ for the one place X11/XWayland is still used, as an implementation detail.
    Google Cloud Translation, or Microsoft/Azure ("Bing") Translator — with an
    optional ordered fallback chain if the first one fails. See
    [Providers, fallback, and public/private modes](#providers-fallback-and-publicprivate-modes).
-5. **Popup**: shows original + translated text, with a copy button. Each
-   successful translation is also recorded to a local history — see
-   [History](#history).
+5. **Popup**: shows original + translated text, which provider actually
+   translated it (`via google`, `via deepl`, ...) — useful when you have a
+   fallback chain configured, since it's not always `active_provider` — and a
+   copy button. Each successful translation is also recorded to a local
+   history — see [History](#history).
 
 The app runs in the system tray with a **Capture** / **Live Clipboard
 Translate** / **Live Region Translate** / **History** / **Quit** menu (see
