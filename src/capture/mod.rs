@@ -16,7 +16,7 @@ mod windows_video;
 use anyhow::Result;
 use image::DynamicImage;
 
-pub use selector::{select_crop, select_region_rect};
+pub use selector::{select_crop, select_region_rect, show_regions, ExistingRegion};
 
 /// The continuous-capture session Live Region Translate (`watch-region`)
 /// polls for frames — a single per-OS implementation aliased under one
