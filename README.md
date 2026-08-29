@@ -334,10 +334,23 @@ ocr-translate test-provider --provider openai "Bonjour le monde"
 
 `ocr-translate run` only ever runs one at a time — starting a second one
 while the tray daemon is already running shows an error popup and exits
-rather than opening a duplicate tray icon. `capture`/`watch-clipboard`/
-`watch-region`/`show-history` aren't limited this way — running several at
-once (a capture while Live Region Translate is open, two captures back to
-back, etc.) is fine.
+rather than opening a duplicate tray icon.
+
+`capture`, Live Clipboard Translate, and Live Region Translate can't all run
+at once, either — see [Running capture and live translations together](#running-capture-and-live-translations-together).
+
+### Running capture and live translations together
+
+Live Region Translate holds an active screen-capture session for as long as
+it's open, so starting `capture` or Live Clipboard Translate while it's
+running would contend with it — the only combination that can run at the
+same time is **Live Clipboard Translate + one-shot `capture`**, since Live
+Clipboard Translate never touches the screen at all. Trying anything else
+(starting `capture` or Live Clipboard Translate while Live Region Translate
+is open, starting Live Region Translate while Live Clipboard Translate is
+open, opening a second Live Region/Clipboard Translate) shows a small
+prompt naming what's currently running, with **Cancel** or **Stop it and
+continue** (closes the other one for you and proceeds).
 
 ### Binding a key
 
@@ -406,6 +419,11 @@ fallback chain configured, since it isn't always `active_provider`.
 **Where's my history stored, and how do I clear it?**
 `history.jsonl` next to your config file. Use the tray's **Clear History**,
 or `ocr-translate clear-history`.
+
+**(Windows) Where do I find logs if something goes wrong?**
+`ocr-translate.log` next to your config file (`%APPDATA%\ocr-translation\ocr-translate.log`).
+The app has no console window, so this file is the only place its log
+output goes. On Linux, log output goes to the terminal you ran it from.
 
 **A window opened at the wrong size.**
 Window sizes are clamped a little short of your exact monitor resolution to

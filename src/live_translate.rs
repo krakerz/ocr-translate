@@ -42,6 +42,32 @@ struct LiveState {
 /// `show-history`) for the same reason those do: this opens an eframe/winit
 /// window, which can't safely share a process with the tray's GTK main loop.
 pub fn run(cfg: &AppConfig) -> Result<()> {
+    // Live Region Translate holds an active screen-capture session that
+    // this never touches (it only reads clipboard text) — but the reverse
+    // still matters: if Live Region Translate is active, don't also start
+    // this. See session_lock.rs.
+    let mut region_lock = crate::session_lock::SessionLock::open("region")?;
+    let Some(_) =
+        crate::session_lock::resolve_conflict(&mut region_lock, "Live Clipboard Translate", "Live Region Translate")?
+    else {
+        tracing::info!("cancelled: Live Region Translate is active");
+        return Ok(());
+    };
+
+    // Held for this whole session (until the window closes) — lets
+    // `capture` coexist freely (the one allowed combination) while still
+    // preventing a second Live Clipboard Translate instance from starting.
+    let mut clipboard_lock = crate::session_lock::SessionLock::open("clipboard")?;
+    let Some(_clipboard_guard) = crate::session_lock::resolve_conflict(
+        &mut clipboard_lock,
+        "another Live Clipboard Translate session",
+        "Live Clipboard Translate",
+    )?
+    else {
+        tracing::info!("cancelled: Live Clipboard Translate is already running");
+        return Ok(());
+    };
+
     let state = Arc::new(Mutex::new(LiveState::default()));
     spawn_watcher(cfg.clone(), state.clone());
 

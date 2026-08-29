@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "1.6.4"
+version = "1.8.0"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland) and Windows"
 license = "MIT"
@@ -77,10 +77,12 @@ pipewire = "0.10"
 # xcap itself depends on) is used directly only for `GetCursorPos` — xcap has
 # no cursor-position API of its own, it's a screen-capture library, not an
 # input-query one. Not yet verified on real Windows hardware/CI — see
-# TODO.md before trusting this blindly.
+# TODO.md before trusting this blindly. `Win32_System_Threading` is also
+# used, separately, by src/session_lock.rs's "stop the other session for
+# me" feature (OpenProcess/TerminateProcess) — see its module doc comment.
 [target.'cfg(target_os = "windows")'.dependencies]
 xcap = "0.9"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 
 # Embeds assets/icon.ico as the exe's icon resource on Windows (see
 # build.rs) — so it shows up in Explorer/the taskbar, not just in-app

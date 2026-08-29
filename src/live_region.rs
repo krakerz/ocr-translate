@@ -47,6 +47,36 @@ struct LiveState {
 /// windows (the region selector, then the live popup), which can't safely
 /// share a process with the tray's GTK main loop.
 pub fn run(cfg: &AppConfig) -> Result<()> {
+    // Checked before negotiating any actual screen-capture session, so a
+    // conflict is resolved (or cancelled) before spending any effort on
+    // that. See session_lock.rs for why: Live Clipboard Translate doesn't
+    // touch the screen at all, so it isn't blocked by a running capture,
+    // but it does block a new Live Region Translate session from starting.
+    let mut clipboard_lock = crate::session_lock::SessionLock::open("clipboard")?;
+    let Some(_) = crate::session_lock::resolve_conflict(
+        &mut clipboard_lock,
+        "Live Region Translate",
+        "Live Clipboard Translate",
+    )?
+    else {
+        tracing::info!("cancelled: Live Clipboard Translate is active");
+        return Ok(());
+    };
+
+    // Held for this whole session (until the window closes) — this is what
+    // makes `capture`/`watch-clipboard`/a second `watch-region` all detect
+    // this session as active.
+    let mut region_lock = crate::session_lock::SessionLock::open("region")?;
+    let Some(_region_guard) = crate::session_lock::resolve_conflict(
+        &mut region_lock,
+        "another Live Region Translate session",
+        "Live Region Translate",
+    )?
+    else {
+        tracing::info!("cancelled: Live Region Translate is already running");
+        return Ok(());
+    };
+
     tracing::info!(
         "starting a screen capture session (on Linux, your compositor may ask you to pick a screen/window to share)..."
     );

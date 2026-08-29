@@ -20,6 +20,7 @@ mod live_region;
 mod live_translate;
 mod ocr;
 mod popup;
+mod session_lock;
 mod translate;
 mod tray;
 
@@ -89,12 +90,52 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+/// Sets up `tracing` output. On Windows, this exe is a GUI-subsystem app
+/// with no console (see the `windows_subsystem` attribute above), so
+/// stdout log output is completely invisible unless launched from an
+/// existing terminal — no help at all for diagnosing an issue on a real
+/// end user's machine. Logs go to `ocr-translate.log` in the same per-user
+/// config directory as `config.yaml`/`history.jsonl` instead, opened in
+/// append mode so a chronological history builds up across every
+/// capture/tray/etc. process (each subcommand is its own process, see
+/// `daemon::spawn_subcommand`) rather than each one truncating the last
+/// run's log. Falls back to stdout if the config directory can't be
+/// determined or the log file can't be opened, rather than failing to
+/// start over a logging problem. Linux/other platforms keep the original
+/// stdout-only behavior — a terminal is already available there.
+#[cfg(target_os = "windows")]
+fn init_logging() {
+    let filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let log_file = config::app_config_dir().and_then(|dir| {
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("ocr-translate.log"))
+            .ok()
+    });
+    match log_file {
+        Some(file) => tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_ansi(false)
+            .with_writer(std::sync::Mutex::new(file))
+            .init(),
+        None => tracing_subscriber::fmt().with_env_filter(filter).init(),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn init_logging() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+}
+
+fn main() -> Result<()> {
+    init_logging();
 
     let cli = Cli::parse();
 
@@ -135,6 +176,19 @@ pub fn run_capture_cycle(cfg: &AppConfig) -> Result<()> {
 }
 
 fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
+    // Live Region Translate holds an active screen-capture session (DXGI
+    // Desktop Duplication on Windows, a PipeWire ScreenCast stream on
+    // Linux) that a one-shot screenshot can contend with — see
+    // session_lock.rs. Bound to `_`, not a named variable: this is a
+    // momentary check, not something `capture` holds for its own lifetime,
+    // so the lock is released again immediately after this line.
+    let mut region_lock = session_lock::SessionLock::open("region")?;
+    let Some(_) = session_lock::resolve_conflict(&mut region_lock, "capture", "Live Region Translate")?
+    else {
+        tracing::info!("cancelled: Live Region Translate is active");
+        return Ok(());
+    };
+
     tracing::info!("capturing...");
     let Some(cropped) = capture::acquire(&cfg.capture, &cfg.popup)? else {
         tracing::info!("selection cancelled");

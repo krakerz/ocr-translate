@@ -1,8 +1,58 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Instant;
 
 use anyhow::Result;
 
 use crate::config::PopupConfig;
+
+/// The user's answer to a [`show_conflict`] prompt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ConflictChoice {
+    /// Do nothing — closing the window any other way (Escape, the X
+    /// button) counts as this too.
+    Cancel,
+    /// Terminate the other session (see `session_lock::terminate_process`)
+    /// and proceed with whatever the caller was trying to do.
+    StopAndContinue,
+}
+
+/// A small blocking dialog for the mutual-exclusion rules between Live
+/// Region Translate, Live Clipboard Translate, and one-shot `capture` (see
+/// `session_lock.rs`) — blocks the calling process until the user answers,
+/// same as every other popup in this module. `can_force_stop` controls
+/// whether the "Stop it and continue" button shows at all — the caller
+/// only knows the other session's PID (needed to actually stop it) via a
+/// racy, best-effort read (`SessionLock::holder_pid`), so a prompt with no
+/// usable PID just offers Cancel.
+pub fn show_conflict(title: &str, message: &str, can_force_stop: bool) -> Result<ConflictChoice> {
+    let choice = Rc::new(RefCell::new(ConflictChoice::Cancel));
+    let app = ConflictApp {
+        title: title.to_string(),
+        message: message.to_string(),
+        can_force_stop,
+        choice: choice.clone(),
+    };
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([460.0, 220.0])
+            .with_always_on_top()
+            .with_icon(crate::icon::egui_icon(128))
+            .with_title(title),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "ocr-translate-conflict",
+        native_options,
+        Box::new(|cc| {
+            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
+    )
+    .map_err(|e| anyhow::anyhow!("conflict prompt window failed: {e}"))?;
+    let result = *choice.borrow();
+    Ok(result)
+}
 
 pub fn show_result(
     original: &str,
@@ -149,6 +199,37 @@ impl eframe::App for ErrorApp {
             if ui.button("Close").clicked() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+        });
+    }
+}
+
+struct ConflictApp {
+    title: String,
+    message: String,
+    can_force_stop: bool,
+    choice: Rc<RefCell<ConflictChoice>>,
+}
+
+impl eframe::App for ConflictApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading(&self.title);
+            ui.separator();
+            ui.add(egui::Label::new(&self.message).wrap());
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    *self.choice.borrow_mut() = ConflictChoice::Cancel;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                if self.can_force_stop && ui.button("Stop it and continue").clicked() {
+                    *self.choice.borrow_mut() = ConflictChoice::StopAndContinue;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
         });
     }
 }
