@@ -4,7 +4,21 @@ mod daemon;
 mod fonts;
 mod history;
 mod icon;
+// Live Region Translate needs a continuous screen-capture session
+// (`capture::screencast`, PipeWire-based), which only exists on Linux so
+// far — see TODO.md. On other platforms this loads a tiny stub `run` that
+// gives a clear "not supported on this OS yet" error instead of failing to
+// compile the whole crate.
+#[cfg(target_os = "linux")]
 mod live_region;
+#[cfg(not(target_os = "linux"))]
+mod live_region {
+    pub fn run(_cfg: &crate::config::AppConfig) -> anyhow::Result<()> {
+        anyhow::bail!(
+            "Live Region Translate (watch-region) isn't implemented on this OS yet — see TODO.md"
+        )
+    }
+}
 mod live_translate;
 mod ocr;
 mod popup;

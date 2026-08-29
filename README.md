@@ -1,13 +1,17 @@
 # ocr-translate
 
-A small Rust tool for Linux: use the tray menu (or bind `ocr-translate
-capture` to a key yourself), drag-select a region of the screen, and get the
-OCR'd text translated by an LLM or translation API in a popup. Targets
+A small Rust tool: use the tray menu (or bind `ocr-translate capture` to a
+key yourself), drag-select a region of the screen, and get the OCR'd text
+translated by an LLM or translation API in a popup. On Linux this targets
 Wayland (GNOME/KDE/wlroots) via the standard xdg-desktop-portal APIs, without
-compositor-specific hacks; the codebase is otherwise plain Rust so it also
-builds on Windows/macOS with reduced portal/tray support. X11 sessions aren't
-supported as a first-class target — see [Known limitations](#known-limitations)
-for the one place X11/XWayland is still used, as an implementation detail.
+compositor-specific hacks; X11 sessions aren't supported as a first-class
+target there — see [Known limitations](#known-limitations) for the one place
+X11/XWayland is still used, as an implementation detail. **Windows support is
+in progress**: one-shot capture has a real backend (via `xcap`), but it's
+only been verified to *compile* so far (CI, no Windows machine available
+during development) — not yet confirmed to actually work correctly on real
+hardware. Live Region Translate isn't implemented on Windows yet (a clear
+error rather than a crash). macOS isn't started.
 
 ## How it works
 
@@ -42,6 +46,8 @@ for why, and how to bind one yourself in your DE/compositor instead.
 
 ## Requirements
 
+### Linux
+
 - Rust toolchain
 - Tesseract + Leptonica dev libraries (`tesseract`, `leptonica` on most distros)
   and at least one language's tessdata installed
@@ -61,6 +67,21 @@ for why, and how to bind one yourself in your DE/compositor instead.
   # Debian / Ubuntu
   sudo apt install libgtk-3-dev libappindicator3-dev  # or libayatana-appindicator3-dev
   ```
+
+### Windows (in progress — see the note above)
+
+- Rust toolchain
+- Tesseract + Leptonica via [vcpkg](https://github.com/microsoft/vcpkg):
+  ```powershell
+  vcpkg install tesseract:x64-windows
+  ```
+  then build with `VCPKGRS_DYNAMIC=true` set (see `.github/workflows/ci.yml`
+  for the exact CI setup this is based on — `leptess`, the OCR crate this
+  project uses, documents this as its own supported Windows approach).
+- Everything else (capture, tray, translate, popups) is either genuinely
+  cross-platform already or has a Windows-specific backend — no other native
+  library requirement beyond Tesseract/Leptonica right now. Live Region
+  Translate (`watch-region`) isn't implemented on Windows yet.
 
 ```sh
 cargo build --release
