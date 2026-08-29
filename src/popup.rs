@@ -4,10 +4,16 @@ use anyhow::Result;
 
 use crate::config::PopupConfig;
 
-pub fn show_result(original: &str, translated: &str, cfg: &PopupConfig) -> Result<()> {
+pub fn show_result(
+    original: &str,
+    translated: &str,
+    provider: &str,
+    cfg: &PopupConfig,
+) -> Result<()> {
     let app = PopupApp {
         original: original.to_string(),
         translated: translated.to_string(),
+        provider: provider.to_string(),
         font_size: cfg.font_size,
         auto_close_secs: cfg.auto_close_secs,
         opened_at: Instant::now(),
@@ -63,6 +69,7 @@ pub fn show_error(message: &str) -> Result<()> {
 struct PopupApp {
     original: String,
     translated: String,
+    provider: String,
     font_size: f32,
     auto_close_secs: u64,
     opened_at: Instant,
@@ -84,6 +91,7 @@ impl eframe::App for PopupApp {
             ui.style_mut().override_font_id = Some(egui::FontId::proportional(self.font_size));
 
             ui.heading("Translation");
+            ui.label(egui::RichText::new(format!("via {}", self.provider)).weak());
             ui.separator();
 
             ui.label(egui::RichText::new("Original").weak());

@@ -153,7 +153,7 @@ fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
     if cfg.history.enabled {
         let entry = history::HistoryEntry {
             timestamp: chrono::Local::now().to_rfc3339(),
-            provider: provider_used,
+            provider: provider_used.clone(),
             source_lang: cfg.general.source_lang.clone(),
             target_lang: cfg.general.target_lang.clone(),
             original: text.clone(),
@@ -164,7 +164,7 @@ fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
         }
     }
 
-    popup::show_result(&text, &translated, &cfg.translate)?;
+    popup::show_result(&text, &translated, &provider_used, &cfg.translate)?;
     Ok(())
 }
 
@@ -186,6 +186,11 @@ fn show_history(cfg: &AppConfig, index: usize) -> Result<()> {
     let Some(entry) = history::get(index)? else {
         bail!("no history entry at index {index}");
     };
-    popup::show_result(&entry.original, &entry.translated, &cfg.history_popup)?;
+    popup::show_result(
+        &entry.original,
+        &entry.translated,
+        &entry.provider,
+        &cfg.history_popup,
+    )?;
     Ok(())
 }
