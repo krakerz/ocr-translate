@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -74,7 +74,7 @@ jobs:
           echo "asset_checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Update rolling draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: latest
           name: v${{ steps.package.outputs.version }}
@@ -101,10 +101,37 @@ jobs:
       VCPKGRS_DYNAMIC: "true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Point VCPKG_ROOT at the runner's pre-installed vcpkg
         run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+
+      # vcpkg already writes a binary cache to a local folder by default (no
+      # extra vcpkg config needed) — `VCPKG_DEFAULT_BINARY_CACHE` just pins
+      # that folder to a known path so actions/cache can persist it across
+      # runs. This is what actually avoids recompiling Tesseract/Leptonica
+      # (and their own dependencies: libpng, zlib, libjpeg-turbo, libtiff,
+      # openjp2, ...) from source on every run — vcpkg's own GitHub Actions
+      # binary-cache provider (`x-gha`) that older docs/examples reference
+      # has since been removed from vcpkg, so this (default local cache +
+      # the CI's native cache action) is the current recommended approach.
+      # A cache miss (e.g. the very first run, or after a vcpkg/tesseract
+      # version bump) just means a slow rebuild same as today — never a
+      # correctness risk, since vcpkg keys reuse on its own ABI hash
+      # (compiler, port script, triplet, etc.), not on this cache key alone.
+      - name: Point vcpkg's binary cache at a known folder
+        run: echo "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}\vcpkg-cache" >> $env:GITHUB_ENV
+
+      - name: Create vcpkg binary cache folder
+        run: New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-cache
+          key: vcpkg-archives-windows-tesseract-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-archives-windows-tesseract-
 
       - name: Install Tesseract via vcpkg
         run: vcpkg install tesseract:x64-windows
@@ -147,7 +174,7 @@ jobs:
           echo "asset_checksum=$dist.zip.sha256" >> $env:GITHUB_OUTPUT
 
       - name: Attach to rolling draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: latest
           name: v${{ steps.package.outputs.version }}

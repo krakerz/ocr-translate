@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "1.6.2"
+version = "1.6.4"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland) and Windows"
 license = "MIT"
