@@ -129,9 +129,9 @@ active_provider: lmstudio
 # If active_provider fails (server not running, bad key, network error, ...),
 # these are tried next, in order. The default below means: prefer your local
 # LM Studio, then fall back to Google's free public endpoint (no key needed)
-# — so the app still works even with nothing else configured. (Bing has no
-# equivalent free option — see the "bing" provider below — so it isn't listed
-# here by default; add it once you've set mode: private + a real Azure key.)
+# — so the app still works even with nothing else configured. Bing and DeepL
+# below are also free/public by default and can be added here too, e.g.
+# `- bing` then `- deepl`, if you want more fallbacks before giving up.
 fallback_providers:
   - google
 
@@ -181,14 +181,31 @@ providers:
     # mode: private
     # api_key_env: GOOGLE_TRANSLATE_API_KEY
 
-  # Microsoft/Azure "Bing" Translator. Unlike Google, there's no reliable free
-  # public option here — the unofficial trick bing.com/translator used is now
-  # either dead or actively blocked by anti-bot protection (confirmed by
-  # testing), so mode: public just returns an error explaining that. Use the
-  # official Azure Translator v3 API instead: needs api_key/api_key_env
-  # (+ region for multi-service resources).
+  # Microsoft/Azure "Bing" Translator.
+  #   mode: public  — the free, unofficial endpoint bing.com/translator's own
+  #                   page uses. No API key. Undocumented and could change or
+  #                   rate-limit without notice.
+  #   mode: private — the official Azure Translator v3 API. Needs api_key/
+  #                   api_key_env (+ region for multi-service resources).
   bing:
     kind: bing_translate
-    mode: private
-    api_key_env: AZURE_TRANSLATOR_KEY
-    region: null
+    mode: public
+    # For private mode instead:
+    # mode: private
+    # api_key_env: AZURE_TRANSLATOR_KEY
+    # region: null
+
+  # DeepL Translator.
+  #   mode: public  — the free, unofficial endpoint deepl.com/translator's own
+  #                   page uses. No API key. Undocumented, more aggressively
+  #                   rate-limited than Google/Bing's free endpoints in
+  #                   testing — treat this as the least reliable of the three
+  #                   free options, and prefer mode: private if you have a key.
+  #   mode: private — the official DeepL API (Free or Pro tier — detected
+  #                   automatically from whether api_key ends in ":fx").
+  deepl:
+    kind: deepl_translate
+    mode: public
+    # For private mode instead:
+    # mode: private
+    # api_key_env: DEEPL_API_KEY

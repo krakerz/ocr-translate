@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland)"
 license = "MIT"
@@ -22,7 +22,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
 image = "0.25"
 leptess = "0.14"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# cookies: the free Google/Bing/DeepL translate endpoints (src/translate/)
+# need a session's cookies carried from an initial page-load request into the
+# translation request(s) that follow it, same as a real browser would — this
+# turns reqwest::blocking::Client into carrying its own cookie jar so we
+# don't have to parse Set-Cookie/build Cookie headers by hand.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "cookies", "rustls-tls"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
 tray-icon = { version = "0.19", default-features = false }

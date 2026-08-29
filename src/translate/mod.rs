@@ -1,6 +1,8 @@
 mod bing;
+mod deepl;
 mod google;
 mod openai_compat;
+mod session;
 
 use anyhow::{bail, Result};
 
@@ -35,7 +37,7 @@ pub fn build_named(name: &str, cfg: &AppConfig) -> Result<Box<dyn Translator>> {
         .providers
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("provider '{name}' not found in config"))?;
-    build_for(provider, cfg)
+    build_for(name, provider, cfg)
 }
 
 /// Tries `active_provider` first, then each of `fallback_providers` in
@@ -60,7 +62,11 @@ pub fn translate_with_fallback(cfg: &AppConfig, req: TranslateRequest) -> Result
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no providers configured")))
 }
 
-fn build_for(provider: &ProviderConfig, cfg: &AppConfig) -> Result<Box<dyn Translator>> {
+fn build_for(
+    name: &str,
+    provider: &ProviderConfig,
+    cfg: &AppConfig,
+) -> Result<Box<dyn Translator>> {
     match provider.kind {
         ProviderKind::OpenAiCompatible => {
             let Some(base_url) = provider.base_url.clone() else {
@@ -79,14 +85,22 @@ fn build_for(provider: &ProviderConfig, cfg: &AppConfig) -> Result<Box<dyn Trans
             }))
         }
         ProviderKind::GoogleTranslate => Ok(Box::new(google::GoogleTranslate {
+            name: name.to_string(),
             mode: provider.mode,
             api_key: provider.resolve_api_key(),
             timeout_secs: provider.timeout_secs,
         })),
         ProviderKind::BingTranslate => Ok(Box::new(bing::BingTranslate {
+            name: name.to_string(),
             mode: provider.mode,
             api_key: provider.resolve_api_key(),
             region: provider.region.clone(),
+            timeout_secs: provider.timeout_secs,
+        })),
+        ProviderKind::DeepLTranslate => Ok(Box::new(deepl::DeepLTranslate {
+            name: name.to_string(),
+            mode: provider.mode,
+            api_key: provider.resolve_api_key(),
             timeout_secs: provider.timeout_secs,
         })),
     }

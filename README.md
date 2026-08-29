@@ -92,8 +92,8 @@ Key fields:
 
 - `active_provider` / `fallback_providers` — which entries in `providers` to
   try, in order (see [Providers, fallback, and public/private modes](#providers-fallback-and-publicprivate-modes)).
-- `providers.<name>.kind` — `openai_compatible` | `google_translate` | `bing_translate`.
-- `providers.<name>.mode` — `public` | `private` (`google_translate`/`bing_translate` only).
+- `providers.<name>.kind` — `openai_compatible` | `google_translate` | `bing_translate` | `deepl_translate`.
+- `providers.<name>.mode` — `public` | `private` (`google_translate`/`bing_translate`/`deepl_translate` only).
 - `prompt.system` / `prompt.template` — fully customizable prompt sent to
   LLM-based providers. Template placeholders: `{source_lang}`, `{target_lang}`, `{text}`.
 - `ocr.languages` — Tesseract language code(s), e.g. `eng`, `eng+jpn`.
@@ -118,28 +118,37 @@ fallback_providers:
   - google
 ```
 
-Google Translate and Bing/Azure Translator each support two `mode`s:
+Google Translate, Bing/Azure Translator, and DeepL Translator each support two `mode`s:
 
 - `mode: public` — a free, unofficial, no-key endpoint the provider's own
-  translator web page uses. **Only implemented for Google** — it's a genuine,
-  widely-used technique (the same one countless open-source translation tools
-  rely on) and worked in local testing, though it's undocumented and can be
-  rate-limited by Google without notice (you may see this if many requests
-  come from the same network). **Bing has no equivalent**: the old free-token
-  endpoint (`edge.microsoft.com/translate/auth`) is dead, and the current
-  bing.com/translator frontend is guarded by an abuse-prevention check that
-  requires replaying a full browser session's cookies to pass — that's
-  session spoofing to dodge bot detection, not a stable public API, so it
-  isn't implemented; `mode: public` for Bing just returns an explanatory error.
+  translator web page uses: load the page once to pick up a session
+  token/cookies (the same technique [XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator)
+  uses for its free endpoints, and that this project's own implementation is
+  modeled on), then reuse that session across translations, refreshed
+  periodically rather than on every call. Undocumented, and can change or
+  rate-limit without notice:
+  - **Google**: works reliably in testing.
+  - **Bing**: works, but needed one more piece than XUnity's own
+    implementation has — confirmed by testing that XUnity's exact request
+    gets rejected by the live endpoint today (`{"statusCode":205}`); the
+    missing piece was an additional auth token/key the page embeds
+    (`params_AbusePreventionHelper`), which this implementation scrapes and
+    sends too.
+  - **DeepL**: implemented the same way, but hit a 429 (rate-limited) on the
+    first live attempt in testing — treat this as the least reliable of the
+    three, and prefer `mode: private` if you have a DeepL API key.
 - `mode: private` — the official, authenticated API (Cloud Translation v2 for
-  Google, Azure Translator v3 for Bing). Needs `api_key`/`api_key_env` (and
-  `region` for Bing, if using a multi-service Azure resource).
+  Google, Azure Translator v3 for Bing, the DeepL API — Free or Pro tier,
+  detected from whether the key ends in `:fx` — for DeepL). Needs
+  `api_key`/`api_key_env` (and `region` for Bing, if using a multi-service
+  Azure resource).
 
-Public mode never sends `prompt.system`/`prompt.template` — it's a real
-translation API, not an LLM, so there's no prompt to customize.
+Public mode never sends `prompt.system`/`prompt.template` — these are real
+translation APIs, not LLMs, so there's no prompt to customize.
 
-DeepSeek (an LLM API, not a dedicated translation service) has no free/public
-option either — it always requires `api_key_env`.
+DeepSeek (an LLM API, not a dedicated translation service — not to be
+confused with DeepL above) has no free/public option either — it always
+requires `api_key_env`.
 
 ## Alternate capture backend (external tool)
 

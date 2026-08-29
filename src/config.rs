@@ -306,15 +306,17 @@ pub enum ProviderKind {
     GoogleTranslate,
     #[serde(rename = "bing_translate")]
     BingTranslate,
+    #[serde(rename = "deepl_translate")]
+    DeepLTranslate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum ProviderMode {
     /// The free, unofficial, no-key web endpoint the provider's own
     /// translator page uses (only meaningful for `google_translate` /
-    /// `bing_translate`; ignored otherwise). Unofficial and undocumented, so
-    /// it can change or rate-limit without notice, but it's what makes
-    /// zero-config translation possible out of the box.
+    /// `bing_translate` / `deepl_translate`; ignored otherwise). Unofficial
+    /// and undocumented, so it can change or rate-limit without notice, but
+    /// it's what makes zero-config translation possible out of the box.
     #[serde(rename = "public")]
     Public,
     /// The official, authenticated API — requires `api_key`/`api_key_env`
@@ -632,6 +634,7 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 let kind = match get("kind").as_deref() {
                     Some("google_translate") => ProviderKind::GoogleTranslate,
                     Some("bing_translate") => ProviderKind::BingTranslate,
+                    Some("deepl_translate") => ProviderKind::DeepLTranslate,
                     _ => ProviderKind::OpenAiCompatible,
                 };
                 let mode = match get("mode").as_deref() {
