@@ -14,9 +14,10 @@ pub fn show_result(original: &str, translated: &str, cfg: &PopupConfig) -> Resul
         copied_flash: None,
     };
 
+    let (width, height) = crate::capture::clamp_to_screen(cfg.width, cfg.height);
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([cfg.width, cfg.height])
+            .with_inner_size([width, height])
             .with_always_on_top()
             .with_icon(crate::icon::egui_icon(128))
             .with_title("Translation"),

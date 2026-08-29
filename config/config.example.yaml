@@ -42,17 +42,33 @@ capture:
   # How long to keep polling the clipboard for an image after the command exits.
   external_timeout_secs: 10
 
+# The in-app crop-selector window — "drag a rectangle to select" — shown by
+# both `ocr-translate capture` (built_in backend) and `watch-region`'s
+# initial region pick. `width`/`height` are the box the screenshot is
+# initially scaled to fit within (aspect ratio preserved); scroll to zoom in
+# further from there. Doesn't need to match your monitor's resolution.
 popup:
+  width: 1600
+  height: 1600
+  always_on_top: true
+
+# Shared by every window that shows a translation result: the one-shot
+# `capture` popup, Live Clipboard Translate, and Live Region Translate.
+# `auto_close_secs` only takes effect on the one-shot `capture` popup — the
+# Live Clipboard/Region windows ignore it, since they're meant to keep
+# running (and updating in place) until you close them yourself.
+translate:
   width: 520
   height: 380
   font_size: 16
   always_on_top: true
-  # Auto-dismiss the result popup after N seconds; 0 = stay open until closed.
+  # Auto-dismiss the one-shot capture popup after N seconds; 0 = stay open
+  # until closed.
   auto_close_secs: 0
 
 # Popup shown when reopening a history entry (tray History submenu /
-# `ocr-translate show-history`) — separate from `popup` above so you can size
-# it differently than the live capture-result popup, e.g. larger for
+# `ocr-translate show-history`) — separate from `translate` above so you can
+# size it differently than the live capture-result popup, e.g. larger for
 # comfortably re-reading older entries.
 history_popup:
   width: 520
@@ -73,14 +89,28 @@ history:
 # live-updating popup — copy something, see it translated; copy something
 # else, it updates in place. Never recorded to history.
 live_translate:
-  width: 480
-  height: 360
-  font_size: 16
-  always_on_top: true
   # Initial state of the popup's "Show source" checkbox; changeable per-session.
   show_source_by_default: true
   # How often to check whether the clipboard's text changed.
   poll_interval_ms: 500
+
+# Tray's "Live Region Translate": pick a fixed screen region once (via a
+# PipeWire ScreenCast session), then keep OCR-ing that region and
+# re-translating whenever the recognized text changes. Never recorded to
+# history. Requires the xdg-desktop-portal ScreenCast backend.
+region_translate:
+  # Initial state of the popup's "Show source" checkbox; changeable per-session.
+  show_source_by_default: true
+  # How often to grab the latest frame, OCR the region, and re-translate if
+  # the text changed. OCR is much more expensive than the clipboard's plain
+  # text-change check, so this defaults slower than live_translate's.
+  poll_interval_ms: 1000
+  # How long to wait after the ScreenCast portal negotiation succeeds before
+  # grabbing the frame used for region selection. The compositor's own
+  # "share screen with..." picker dialog can still be visible in the first
+  # frame or two otherwise. Raise this if your compositor is slower to
+  # dismiss the picker.
+  capture_delay_secs: 1
 
 prompt:
   system: >-

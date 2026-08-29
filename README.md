@@ -32,8 +32,9 @@ for the one place X11/XWayland is still used, as an implementation detail.
    [History](#history).
 
 The app runs in the system tray with a **Capture** / **Live Clipboard
-Translate** / **History** / **Quit** menu (see
+Translate** / **Live Region Translate** / **History** / **Quit** menu (see
 [Live Clipboard Translate](#live-clipboard-translate) for the clipboard-based
+mode, and [Live Region Translate](#live-region-translate) for the fixed-region
 mode). There's no built-in global hotkey — see [Binding a key](#binding-a-key)
 for why, and how to bind one yourself in your DE/compositor instead.
 
@@ -46,6 +47,10 @@ for why, and how to bind one yourself in your DE/compositor instead.
   window backend keeps an X11 fallback compiled in alongside its Wayland
   backend; also, cursor position and monitor geometry are queried over
   XWayland (see [Known limitations](#known-limitations))
+- PipeWire dev libraries (`libpipewire-0.3`, e.g. `pipewire-devel` /
+  `libpipewire-0.3-dev` depending on distro) — used only by
+  [Live Region Translate](#live-region-translate)'s ScreenCast capture; any
+  desktop that already supports screen sharing in a video call has these
 - GTK3 + libappindicator (or libayatana-appindicator) dev libraries, for the
   tray icon:
   ```sh
@@ -94,6 +99,7 @@ Key fields:
 - `ocr.languages` — Tesseract language code(s), e.g. `eng`, `eng+jpn`.
 - `capture.backend` — `built_in` | `external` (see [Alternate capture backend](#alternate-capture-backend-external-tool)).
 - `history.enabled` / `history.max_entries` — see [History](#history).
+- `popup` — sizes the in-app crop-selector window (used by `capture` and `watch-region`'s region pick), `translate` — sizes every window that shows a translation result (`capture`, Live Clipboard/Region Translate), `history_popup` — sizes the history-entry viewer. See [Popup, translate, and history windows](#popup-translate-and-history-windows).
 
 API keys: prefer `api_key_env: SOME_ENV_VAR` over a literal `api_key` in the
 file, so secrets don't end up on disk in plaintext.
@@ -173,9 +179,44 @@ ocr-translate clear-history
 ```
 
 Reopened history entries use the separate `history_popup` config section
-(width/height/font_size/always_on_top/auto_close_secs) rather than `popup` —
+(width/height/font_size/always_on_top/auto_close_secs) — see
+[Popup, translate, and history windows](#popup-translate-and-history-windows) —
 so you can size the history viewer differently than the live capture-result
 popup, e.g. larger for comfortably re-reading older entries.
+
+## Popup, translate, and history windows
+
+Three config sections control every window this app opens, split by *what
+they show* rather than by which command triggered them:
+
+- **`popup`** — the in-app crop-selector window, "drag a rectangle to
+  select." Shared by `ocr-translate capture` (`built_in` backend) and
+  `watch-region`'s initial region pick — both are "here's a screenshot, draw
+  a box on it" moments, so they share one config. Fields: `width`, `height`
+  (the box the screenshot is initially scaled to fit within, aspect ratio
+  preserved — scroll to zoom in further from there; doesn't need to match
+  your monitor's resolution), `always_on_top`.
+- **`translate`** — every window that shows a translation result: the
+  one-shot `capture` popup, Live Clipboard Translate, and Live Region
+  Translate. Fields: `width`, `height`, `font_size`, `always_on_top`,
+  `auto_close_secs`. **`auto_close_secs` only applies to the one-shot
+  `capture` popup** — Live Clipboard/Region Translate ignore it, since those
+  windows are meant to keep running (and updating in place) until you close
+  them yourself; setting it wouldn't make sense there.
+- **`history_popup`** — the window shown when reopening a history entry
+  (tray History submenu / `ocr-translate show-history`). Same shape as
+  `translate`, kept as its own section so you can size it differently, e.g.
+  larger for comfortably re-reading old entries.
+
+**A note on setting `width`/`height` to your full monitor resolution**: this
+works, but is automatically clamped a little short of the exact number —
+requesting a window size that lands within a few pixels of your monitor's
+actual resolution triggers a confirmed Wayland/KWin windowing bug where the
+window collapses to a tiny fallback size instead of the one you asked for.
+All three sections above apply this clamp automatically, so you don't need
+to work around it yourself — just set the size you actually want (even your
+exact screen resolution) and it'll open as close to that as the workaround
+allows.
 
 ## Live Clipboard Translate
 
@@ -195,9 +236,56 @@ ocr-translate watch-clipboard
 
 The popup has a **Show source** checkbox to toggle the original text on/off
 (only the translation stays visible when unchecked) — its initial state
-comes from `live_translate.show_source_by_default`. Sizing/behavior is
-config-only, its own separate section (`live_translate`, same shape as
-`popup` plus `show_source_by_default` and `poll_interval_ms`).
+comes from `live_translate.show_source_by_default`. Sizing/appearance comes
+from the shared `translate` config section (see
+[Popup, translate, and history windows](#popup-translate-and-history-windows));
+`live_translate` itself only holds `show_source_by_default` and
+`poll_interval_ms`.
+
+## Live Region Translate
+
+Like Live Clipboard Translate, but for a fixed screen *region* instead of the
+clipboard — useful for subtitles, a chat window, a status readout, or
+anything else that updates in place on screen. Starting it:
+
+1. Opens a `org.freedesktop.portal.ScreenCast` session via PipeWire — your
+   compositor will ask you to pick a screen/window to share (KDE's picker
+   looks like a small "Share screen with..." dialog). This happens once per
+   run, the same portal used by conferencing/recording apps.
+2. Waits `region_translate.capture_delay_secs` (default 1s) before grabbing
+   the frame you'll select a region on — the picker dialog itself can still
+   be visible in the very first frames, so this gives it time to actually
+   close first. Raise this if you still see the dialog baked into the
+   screenshot in step 3 (a slower compositor may need more than 1s).
+3. Shows the first captured frame in the same zoom/pan/select window used by
+   `capture` — drag a rectangle around the text you want to watch.
+4. From then on, polls the live ScreenCast stream every
+   `region_translate.poll_interval_ms` (default 1s), OCRs just that
+   rectangle, and re-translates only when the recognized text actually
+   changes (not on every poll) — so a static region doesn't get retranslated
+   repeatedly, and a subtitle track gets picked up as soon as the line
+   changes.
+
+Deliberately **never recorded to history**, matching Live Clipboard
+Translate. Start it from the tray's **Live Region Translate** menu item, or:
+
+```sh
+ocr-translate watch-region
+```
+
+Sizing/appearance comes from the shared `translate` config section (see
+[Popup, translate, and history windows](#popup-translate-and-history-windows));
+`region_translate` itself only holds `show_source_by_default`,
+`poll_interval_ms`, and `capture_delay_secs`. The region-selection window in
+step 3 uses the `popup` section, same as `capture`'s. OCR is much more
+expensive than the clipboard's plain text-change check, so its default
+`poll_interval_ms` is slower (1s vs 0.5s) — lower it if you need snappier
+updates and can afford the CPU, e.g. for fast-moving subtitles.
+
+Requires a working ScreenCast portal backend (`xdg-desktop-portal-kde`,
+`-gnome`, `-wlr`, or `-hyprland` depending on your compositor) and PipeWire
+running, which is standard on any desktop that already supports screen
+sharing in a video call or `OBS`/`wf-recorder`-style recording.
 
 ## Config hot-reload
 
@@ -205,12 +293,13 @@ While `ocr-translate run` is active, editing the config file takes effect
 without restarting it — a background watcher polls it every ~2 seconds and
 reloads on change:
 
-- Anything used by a fresh capture or a new Live Clipboard Translate window
-  (providers, prompt, OCR, popup sizes, capture backend, history settings,
-  `live_translate.*`, ...) applies the next time you trigger one — each runs
-  in its own process that reads the config file fresh, so this was already
-  true before hot-reload existed. An *already-open* Live Clipboard Translate
-  window keeps using the settings it started with until you close and reopen it.
+- Anything used by a fresh capture or a new Live Clipboard/Region Translate
+  window (providers, prompt, OCR, popup sizes, capture backend, history
+  settings, `live_translate.*`, `region_translate.*`, ...) applies the next
+  time you trigger one — each runs in its own process that reads the config
+  file fresh, so this was already true before hot-reload existed. An
+  *already-open* Live Clipboard/Region Translate window keeps using the
+  settings it started with until you close and reopen it.
 - The tray's History submenu settings (`tray_menu_entries`) apply on its next
   refresh (a couple of seconds), no restart needed.
 - A config file that fails to parse while being edited (e.g. mid-save) is
@@ -221,7 +310,7 @@ reloads on change:
 
 ```sh
 # Tray daemon (default): sits in the system tray with a
-# Capture / Live Clipboard Translate / History / Quit menu.
+# Capture / Live Clipboard Translate / Live Region Translate / History / Quit menu.
 ocr-translate run
 
 # One-shot: capture, crop, OCR, translate, show popup, exit. Useful for
@@ -231,6 +320,10 @@ ocr-translate capture
 # Watch the clipboard and show a live-updating translation popup (see
 # Live Clipboard Translate above). Never recorded to history.
 ocr-translate watch-clipboard
+
+# Pick a screen region (via PipeWire ScreenCast) and show a live-updating
+# translation popup (see Live Region Translate above). Never recorded to history.
+ocr-translate watch-region
 
 # Sanity-check a provider without touching the screen:
 ocr-translate test-provider --provider openai "Bonjour le monde"

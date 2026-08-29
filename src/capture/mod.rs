@@ -2,29 +2,36 @@ mod external;
 mod monitor;
 mod pointer;
 mod portal;
+pub mod screencast;
 mod selector;
 
 use anyhow::Result;
 use image::DynamicImage;
 
-pub use selector::select_crop;
+pub use monitor::clamp_to_screen;
+pub use selector::{select_crop, select_region_rect};
 
-use crate::config::{CaptureBackend, CaptureConfig};
+use crate::config::{CaptureBackend, CaptureConfig, CaptureWindowConfig};
 
 /// Gets the final, already-cropped screen region ready for OCR, using
 /// whichever backend `cfg.backend` selects. Returns `None` if the user
 /// cancelled the selection.
 ///
 /// - `BuiltIn`: grab the active monitor ourselves (see [`grab_active_monitor`])
-///   and crop it with our own zoom/pan/select window ([`select_crop`]).
+///   and crop it with our own zoom/pan/select window ([`select_crop`]),
+///   sized per `window_cfg`.
 /// - `External`: run an external tool that does its own live region
 ///   selection on the real desktop (`capture::external`); no further
-///   cropping needed, its output is already the selected region.
-pub fn acquire(cfg: &CaptureConfig) -> Result<Option<DynamicImage>> {
+///   cropping needed, its output is already the selected region
+///   (`window_cfg` is unused in this path).
+pub fn acquire(
+    cfg: &CaptureConfig,
+    window_cfg: &CaptureWindowConfig,
+) -> Result<Option<DynamicImage>> {
     match cfg.backend {
         CaptureBackend::BuiltIn => {
             let full = grab_active_monitor()?;
-            select_crop(&full)
+            select_crop(&full, window_cfg)
         }
         CaptureBackend::External => external::capture(cfg),
     }

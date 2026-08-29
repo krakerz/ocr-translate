@@ -4,6 +4,7 @@ mod daemon;
 mod fonts;
 mod history;
 mod icon;
+mod live_region;
 mod live_translate;
 mod ocr;
 mod popup;
@@ -59,6 +60,11 @@ enum Command {
     /// something, see it translated; copy something else, it updates in
     /// place. Never recorded to history.
     WatchClipboard,
+    /// Pick a fixed screen region (via a PipeWire ScreenCast session) and
+    /// show a live-updating translation popup: OCRs the region repeatedly
+    /// and re-translates whenever the recognized text changes. Never
+    /// recorded to history.
+    WatchRegion,
     /// Reset the config file(s) in the default config directory to the
     /// bundled example. Config is created automatically on first run, so
     /// this is only needed to restore defaults.
@@ -95,6 +101,7 @@ fn main() -> Result<()> {
         Command::TestProvider { provider, text } => test_provider(&cfg, provider, &text),
         Command::ShowHistory { index } => show_history(&cfg, index),
         Command::WatchClipboard => live_translate::run(&cfg),
+        Command::WatchRegion => live_region::run(&cfg),
         Command::ClearHistory | Command::InitConfig { .. } => unreachable!("handled above"),
     }
 }
@@ -117,7 +124,7 @@ pub fn run_capture_cycle(cfg: &AppConfig) -> Result<()> {
 
 fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
     tracing::info!("capturing...");
-    let Some(cropped) = capture::acquire(&cfg.capture)? else {
+    let Some(cropped) = capture::acquire(&cfg.capture, &cfg.popup)? else {
         tracing::info!("selection cancelled");
         return Ok(());
     };
@@ -157,7 +164,7 @@ fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
         }
     }
 
-    popup::show_result(&text, &translated, &cfg.popup)?;
+    popup::show_result(&text, &translated, &cfg.translate)?;
     Ok(())
 }
 

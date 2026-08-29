@@ -13,6 +13,7 @@ pub enum DaemonEvent {
     ShowHistory(usize),
     ClearHistory,
     WatchClipboard,
+    WatchRegion,
     Quit,
 }
 
@@ -71,6 +72,11 @@ pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
             DaemonEvent::WatchClipboard => {
                 if let Err(e) = spawn_subcommand(config_path.as_deref(), "watch-clipboard", None) {
                     tracing::error!("failed to launch clipboard watcher: {e:#}");
+                }
+            }
+            DaemonEvent::WatchRegion => {
+                if let Err(e) = spawn_subcommand(config_path.as_deref(), "watch-region", None) {
+                    tracing::error!("failed to launch region watcher: {e:#}");
                 }
             }
             DaemonEvent::Quit => {

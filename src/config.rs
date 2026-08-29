@@ -18,13 +18,26 @@ pub struct AppConfig {
     pub general: GeneralConfig,
     pub ocr: OcrConfig,
     pub capture: CaptureConfig,
-    pub popup: PopupConfig,
+    /// Sizing/behavior for the in-app crop-selector window — the "drag a
+    /// rectangle to select" window shown by both `ocr-translate capture`
+    /// (BuiltIn backend) and `watch-region`'s initial region pick. Separate
+    /// from `translate` because this window shows a screenshot, not a
+    /// translation result.
+    pub popup: CaptureWindowConfig,
+    /// Sizing/behavior shared by every window that shows a translation
+    /// result: the one-shot `capture` popup, Live Clipboard Translate, and
+    /// Live Region Translate. `auto_close_secs` only takes effect on the
+    /// one-shot `capture` popup — the Live Clipboard/Region windows ignore
+    /// it, since they're meant to keep running (and updating in place)
+    /// until you close them yourself.
+    pub translate: PopupConfig,
     /// Sizing/behavior for the popup shown when reopening a history entry
-    /// (tray History submenu / `show-history`) — separate from `popup` so it
-    /// can be sized differently than the live capture-result popup.
+    /// (tray History submenu / `show-history`) — separate from `translate`
+    /// so it can be sized differently than the live capture-result popup.
     pub history_popup: PopupConfig,
     pub history: HistoryConfig,
     pub live_translate: LiveTranslateConfig,
+    pub region_translate: RegionTranslateConfig,
     pub prompt: PromptConfig,
     pub active_provider: String,
     /// Tried, in order, if `active_provider` fails (connection error, HTTP
@@ -53,10 +66,12 @@ impl Default for AppConfig {
             general: GeneralConfig::default(),
             ocr: OcrConfig::default(),
             capture: CaptureConfig::default(),
-            popup: PopupConfig::default(),
+            popup: CaptureWindowConfig::default(),
+            translate: PopupConfig::default(),
             history_popup: PopupConfig::default(),
             history: HistoryConfig::default(),
             live_translate: LiveTranslateConfig::default(),
+            region_translate: RegionTranslateConfig::default(),
             prompt: PromptConfig::default(),
             active_provider: "lmstudio".to_string(),
             fallback_providers: Vec::new(),
@@ -147,12 +162,37 @@ impl Default for CaptureConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+pub struct CaptureWindowConfig {
+    /// The box the captured screenshot is initially scaled to fit within
+    /// (aspect ratio preserved) — scroll to zoom in further from there.
+    /// Doesn't need to match your monitor's resolution; this just controls
+    /// how big the selector window starts out.
+    pub width: f32,
+    pub height: f32,
+    pub always_on_top: bool,
+}
+
+impl Default for CaptureWindowConfig {
+    fn default() -> Self {
+        Self {
+            width: 1600.0,
+            height: 1600.0,
+            always_on_top: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct PopupConfig {
     pub width: f32,
     pub height: f32,
     pub font_size: f32,
     pub always_on_top: bool,
-    /// Auto-dismiss the popup after N seconds; 0 disables auto-close.
+    /// Auto-dismiss the popup after N seconds; 0 disables auto-close. Only
+    /// applies to the one-shot `capture` popup — Live Clipboard/Region
+    /// Translate ignore this, since those windows are meant to keep running
+    /// until you close them.
     pub auto_close_secs: u64,
 }
 
@@ -192,10 +232,6 @@ impl Default for HistoryConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct LiveTranslateConfig {
-    pub width: f32,
-    pub height: f32,
-    pub font_size: f32,
-    pub always_on_top: bool,
     /// Initial state of the popup's "Show source" toggle; the user can
     /// still flip it per-session, this is just the starting point.
     pub show_source_by_default: bool,
@@ -206,12 +242,39 @@ pub struct LiveTranslateConfig {
 impl Default for LiveTranslateConfig {
     fn default() -> Self {
         Self {
-            width: 480.0,
-            height: 360.0,
-            font_size: 16.0,
-            always_on_top: true,
             show_source_by_default: true,
             poll_interval_ms: 500,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RegionTranslateConfig {
+    /// Initial state of the popup's "Show source" toggle; the user can
+    /// still flip it per-session, this is just the starting point.
+    pub show_source_by_default: bool,
+    /// How often to grab the latest ScreenCast frame, OCR the selected
+    /// region, and (if the recognized text changed) re-translate. OCR is
+    /// much more expensive than the clipboard's plain text-change check
+    /// (`live_translate.poll_interval_ms`), so this defaults slower.
+    pub poll_interval_ms: u64,
+    /// How long to wait, after the ScreenCast portal negotiation succeeds,
+    /// before grabbing the frame used for region selection. The
+    /// compositor's own "share screen with..." picker dialog can still be
+    /// visible in the first frame or two (its close animation, or just a
+    /// brief redraw lag) — without a delay, that dialog can get baked into
+    /// the screenshot you're trying to select a region on. Raise this if
+    /// your compositor is slower to dismiss the picker.
+    pub capture_delay_secs: u64,
+}
+
+impl Default for RegionTranslateConfig {
+    fn default() -> Self {
+        Self {
+            show_source_by_default: true,
+            poll_interval_ms: 1000,
+            capture_delay_secs: 1,
         }
     }
 }
@@ -412,8 +475,8 @@ fn load_yaml(path: &Path) -> Result<AppConfig> {
 }
 
 /// `.conf` files use INI syntax. Top-level scalar sections (`[general]`, `[ocr]`,
-/// `[capture]`, `[popup]`, `[history_popup]`, `[history]`,
-/// `[live_translate]`, `[prompt]`) map onto the matching struct fields; any
+/// `[capture]`, `[popup]`, `[translate]`, `[history_popup]`, `[history]`,
+/// `[live_translate]`, `[region_translate]`, `[prompt]`) map onto the matching struct fields; any
 /// section named `[provider.<name>]` becomes an
 /// entry in `providers`, e.g.:
 ///
@@ -510,9 +573,16 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
             "popup" => {
                 cfg.popup.width = get_f32("width", cfg.popup.width);
                 cfg.popup.height = get_f32("height", cfg.popup.height);
-                cfg.popup.font_size = get_f32("font_size", cfg.popup.font_size);
                 cfg.popup.always_on_top = get_bool("always_on_top", cfg.popup.always_on_top);
-                cfg.popup.auto_close_secs = get_u64("auto_close_secs", cfg.popup.auto_close_secs);
+            }
+            "translate" => {
+                cfg.translate.width = get_f32("width", cfg.translate.width);
+                cfg.translate.height = get_f32("height", cfg.translate.height);
+                cfg.translate.font_size = get_f32("font_size", cfg.translate.font_size);
+                cfg.translate.always_on_top =
+                    get_bool("always_on_top", cfg.translate.always_on_top);
+                cfg.translate.auto_close_secs =
+                    get_u64("auto_close_secs", cfg.translate.auto_close_secs);
             }
             "history_popup" => {
                 cfg.history_popup.width = get_f32("width", cfg.history_popup.width);
@@ -530,17 +600,24 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                     get_usize("tray_menu_entries", cfg.history.tray_menu_entries);
             }
             "live_translate" => {
-                cfg.live_translate.width = get_f32("width", cfg.live_translate.width);
-                cfg.live_translate.height = get_f32("height", cfg.live_translate.height);
-                cfg.live_translate.font_size = get_f32("font_size", cfg.live_translate.font_size);
-                cfg.live_translate.always_on_top =
-                    get_bool("always_on_top", cfg.live_translate.always_on_top);
                 cfg.live_translate.show_source_by_default = get_bool(
                     "show_source_by_default",
                     cfg.live_translate.show_source_by_default,
                 );
                 cfg.live_translate.poll_interval_ms =
                     get_u64("poll_interval_ms", cfg.live_translate.poll_interval_ms);
+            }
+            "region_translate" => {
+                cfg.region_translate.show_source_by_default = get_bool(
+                    "show_source_by_default",
+                    cfg.region_translate.show_source_by_default,
+                );
+                cfg.region_translate.poll_interval_ms =
+                    get_u64("poll_interval_ms", cfg.region_translate.poll_interval_ms);
+                cfg.region_translate.capture_delay_secs = get_u64(
+                    "capture_delay_secs",
+                    cfg.region_translate.capture_delay_secs,
+                );
             }
             "prompt" => {
                 if let Some(v) = get("system") {

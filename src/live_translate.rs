@@ -48,13 +48,15 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
     let app = LiveTranslateApp {
         state,
         show_source: cfg.live_translate.show_source_by_default,
-        font_size: cfg.live_translate.font_size,
+        font_size: cfg.translate.font_size,
         copied_flash: None,
     };
 
+    let (width, height) =
+        crate::capture::clamp_to_screen(cfg.translate.width, cfg.translate.height);
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([cfg.live_translate.width, cfg.live_translate.height])
+            .with_inner_size([width, height])
             .with_always_on_top()
             .with_icon(crate::icon::egui_icon(128))
             .with_title("Live Clipboard Translate"),

@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "0.2.0"
+version = "0.8.0"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland)"
 license = "MIT"
@@ -40,6 +40,11 @@ egui = "0.28"
 arboard = { version = "3", features = ["wayland-data-control"] }
 chrono = "0.4"
 futures-util = "0.3"
+# 0.8.x fails to build against this system's PipeWire (1.6.8) headers
+# (libspa-sys 0.8.0's bindgen output has an opaque spa_pod_builder struct
+# incompatible with them); 0.10.1 builds cleanly. See src/capture/screencast.rs
+# and CLAUDE.md before bumping — verify a real build, not just `cargo check`.
+pipewire = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
