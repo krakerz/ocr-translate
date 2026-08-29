@@ -3401,7 +3401,7 @@ dependencies = [
 
 [[package]]
 name = "ocr-translate"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "arboard",

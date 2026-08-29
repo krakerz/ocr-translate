@@ -14,7 +14,7 @@ general:
 ocr:
   # Tesseract language code(s), e.g. "eng", "eng+jpn", "chi_sim". Must be installed
   # as tessdata (see `tesseract --list-langs`).
-  languages: eng
+  languages: jpn+eng
   # Optional override for TESSDATA_PREFIX if your distro puts tessdata somewhere unusual.
   tessdata_dir: null
   # Tesseract page segmentation mode; 6 = "assume a single uniform block of text",
