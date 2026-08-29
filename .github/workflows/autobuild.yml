@@ -1,30 +1,22 @@
 name: Autobuild
 
-# Push a version tag (v*.*.*) to trigger this. It builds the release binary
-# for both Linux and Windows, packages each into an archive, and opens a
-# single DRAFT GitHub Release with auto-generated notes (from commits/PRs
-# since the last tag) and both archives attached. Nothing is published
-# automatically — review the draft on the repo's Releases page and click
-# "Publish release" when ready.
+# Runs on every push to main — covers both a direct push and a PR merge,
+# since merging a PR into main is itself a push to main. Builds the release
+# binary for both Linux and Windows, packages each into an archive, and
+# updates a single rolling DRAFT GitHub Release ("latest", titled with the
+# current app version from Cargo.toml) with both archives attached. Nothing
+# is published automatically — review the draft on the repo's Releases page
+# and click "Publish release" when ready.
 #
-# Release-only, intentionally: no push/PR-triggered build-check jobs here —
-# an earlier version of this workflow had those (to catch Windows breakage
-# early), but `build-windows` alone was taking 30+ minutes per run (vcpkg's
-# Tesseract install is slow), too expensive to pay on every commit.
-#
-# Windows is real here (packaged and attached), but **still less proven than
-# Linux** — see CLAUDE.md/TODO.md: it's only been confirmed to *compile* via
-# this workflow and in isolation (a throwaway scratch crate testing just
-# `xcap`/`windows_backend.rs`), not confirmed on real hardware to actually
-# produce correct screenshots. `release-windows` runs after `release-linux`
-# (not in parallel) so the two don't race creating/updating the same
-# release, and only `release-linux` sets `generate_release_notes` — running
-# that twice against the same tag risks duplicate/conflicting notes.
+# Windows is packaged and attached here too, but newer and less proven than
+# Linux — see CLAUDE.md/TODO.md. `release-windows` runs after `release-linux`
+# (not in parallel) so the two don't race updating the same release, and
+# only `release-linux` sets `generate_release_notes` — running that twice
+# risks duplicate/conflicting notes.
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -60,7 +52,7 @@ jobs:
       - name: Package
         id: package
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
           DIST="ocr-translate-${VERSION}-x86_64-linux"
           mkdir -p "$DIST"
           cp target/release/ocr-translate "$DIST/"
@@ -68,14 +60,15 @@ jobs:
           cp -r config "$DIST/"
           tar czf "${DIST}.tar.gz" "$DIST"
           sha256sum "${DIST}.tar.gz" > "${DIST}.tar.gz.sha256"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "asset_tarball=${DIST}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "asset_checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
-      - name: Create draft release
+      - name: Update rolling draft release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: latest
+          name: v${{ steps.package.outputs.version }}
           draft: true
           generate_release_notes: true
           files: |
@@ -91,13 +84,10 @@ jobs:
     # pre-installed at $env:VCPKG_INSTALLATION_ROOT, so this just installs
     # the one port into it rather than bootstrapping vcpkg itself. The
     # `vcpkg` Rust crate (used by leptonica-sys/tesseract-sys's build.rs)
-    # specifically needs VCPKG_ROOT set — confirmed by testing (real Windows
-    # machine) that without it, the build fails with
-    # `VcpkgNotFound("No vcpkg installation found...")` even with vcpkg
-    # itself present and on PATH; `VCPKG_INSTALLATION_ROOT` (the runner-preset
-    # var) and `VCPKG_ROOT` (what the crate actually reads) are not the same
-    # variable, so this has to be bridged explicitly via $GITHUB_ENV rather
-    # than assumed.
+    # specifically needs VCPKG_ROOT set — `VCPKG_INSTALLATION_ROOT` (the
+    # runner-preset var) and `VCPKG_ROOT` (what the crate actually reads) are
+    # not the same variable, so this has to be bridged explicitly via
+    # $GITHUB_ENV rather than assumed.
     env:
       VCPKGRS_DYNAMIC: "true"
     steps:
@@ -122,28 +112,27 @@ jobs:
       - name: Package
         id: package
         run: |
-          $version = "${{ github.ref_name }}".TrimStart('v')
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' -List).Matches[0].Groups[1].Value
           $dist = "ocr-translate-$version-x86_64-windows"
           New-Item -ItemType Directory -Path $dist | Out-Null
           Copy-Item target/release/ocr-translate.exe $dist/
           # Tesseract/Leptonica are linked dynamically (VCPKGRS_DYNAMIC=true
-          # above), so the exe needs these DLLs alongside it at runtime —
-          # confirmed by testing: without them, launching the exe fails with
-          # "tesseract55.dll was not found" even though the build succeeded.
+          # above), so the exe needs these DLLs alongside it at runtime.
           Copy-Item "$env:VCPKG_ROOT\installed\x64-windows\bin\*.dll" $dist/
           Copy-Item README.md,LICENSE $dist/
           Copy-Item -Recurse config "$dist/config"
           Compress-Archive -Path $dist -DestinationPath "$dist.zip"
           $hash = (Get-FileHash "$dist.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $dist.zip" | Set-Content -NoNewline "$dist.zip.sha256"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "asset_zip=$dist.zip" >> $env:GITHUB_OUTPUT
           echo "asset_checksum=$dist.zip.sha256" >> $env:GITHUB_OUTPUT
 
-      - name: Attach to draft release
+      - name: Attach to rolling draft release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: latest
+          name: v${{ steps.package.outputs.version }}
           draft: true
           files: |
             ${{ steps.package.outputs.asset_zip }}

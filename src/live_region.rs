@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use image::DynamicImage;
 
-use crate::capture::screencast::ScreenCastSession;
+use crate::capture::RegionSession;
 use crate::config::AppConfig;
 use crate::translate::{self, TranslateRequest};
 
@@ -34,8 +34,10 @@ struct LiveState {
     status: Option<Status>,
 }
 
-/// Watches a fixed screen region via a PipeWire ScreenCast session: OCRs it
-/// every `poll_interval_ms`, and re-translates whenever the recognized text
+/// Watches a fixed screen region via a continuous capture session (Linux:
+/// portal `ScreenCast` + PipeWire; Windows: `xcap`'s DXGI-based
+/// `VideoRecorder` — see `capture::RegionSession`): OCRs it every
+/// `poll_interval_ms`, and re-translates whenever the recognized text
 /// changes. Deliberately never touches `history`, matching
 /// `live_translate::run` — this is for quick, disposable lookups (subtitles,
 /// a status readout, a chat window), not a record of what's been translated.
@@ -45,25 +47,28 @@ struct LiveState {
 /// windows (the region selector, then the live popup), which can't safely
 /// share a process with the tray's GTK main loop.
 pub fn run(cfg: &AppConfig) -> Result<()> {
-    tracing::info!("starting a ScreenCast session (your compositor may ask you to pick a screen/window to share)...");
-    let session = ScreenCastSession::start().context("failed to start the ScreenCast session")?;
+    tracing::info!(
+        "starting a screen capture session (on Linux, your compositor may ask you to pick a screen/window to share)..."
+    );
+    let session = RegionSession::start().context("failed to start the screen capture session")?;
 
-    // The compositor's own "share screen with..." picker dialog is still
-    // visible on the real desktop for a moment after negotiation succeeds
-    // (its close animation, or just a brief redraw lag) — the very first
-    // frames from the stream can still show it, which would otherwise get
-    // baked into the region-selection screenshot (confirmed happening on a
-    // KDE/KWin session with the default 0s delay). Waiting here before
-    // grabbing the frame used for selection gives it time to fully close;
-    // `capture_delay_secs` is configurable since how long that takes varies
-    // by compositor.
+    // On Linux, the compositor's own "share screen with..." picker dialog is
+    // still visible on the real desktop for a moment after negotiation
+    // succeeds (its close animation, or just a brief redraw lag) — the very
+    // first frames from the stream can still show it, which would otherwise
+    // get baked into the region-selection screenshot (confirmed happening on
+    // a KDE/KWin session with the default 0s delay). Windows' DXGI-based
+    // session needs no such picker at all, so this delay is unnecessary
+    // there — kept unconditional anyway for simplicity, since it's small,
+    // user-configurable (`capture_delay_secs`), and harmless to wait out on
+    // a platform that doesn't need it.
     let delay = Duration::from_secs(cfg.region_translate.capture_delay_secs);
     if !delay.is_zero() {
         std::thread::sleep(delay);
     }
 
     let first_frame = wait_for_frame(&session, Duration::from_secs(15))
-        .context("no frame received from the ScreenCast session")?;
+        .context("no frame received from the screen capture session")?;
 
     let Some(rect) =
         crate::capture::select_region_rect(&DynamicImage::ImageRgba8(first_frame), &cfg.popup)?
@@ -106,14 +111,14 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
 }
 
 /// Polls `session.latest_frame()` until one arrives or `timeout` elapses.
-fn wait_for_frame(session: &ScreenCastSession, timeout: Duration) -> Result<image::RgbaImage> {
+fn wait_for_frame(session: &RegionSession, timeout: Duration) -> Result<image::RgbaImage> {
     let start = Instant::now();
     loop {
         if let Some(frame) = session.latest_frame() {
             return Ok(frame);
         }
         if start.elapsed() > timeout {
-            anyhow::bail!("timed out waiting for the first ScreenCast frame");
+            anyhow::bail!("timed out waiting for the first frame from the screen capture session");
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -121,13 +126,13 @@ fn wait_for_frame(session: &ScreenCastSession, timeout: Duration) -> Result<imag
 
 fn spawn_watcher(
     cfg: AppConfig,
-    session: ScreenCastSession,
+    session: RegionSession,
     rect: (u32, u32, u32, u32),
     state: Arc<Mutex<LiveState>>,
 ) {
     std::thread::spawn(move || {
         // `session` is held here for as long as this thread runs; dropping
-        // it would end the ScreenCast stream.
+        // it would end the capture session.
         let poll_interval = Duration::from_millis(cfg.region_translate.poll_interval_ms.max(100));
         let (x, y, w, h) = rect;
         let mut last_text: Option<String> = None;
@@ -160,10 +165,10 @@ fn spawn_watcher(
     });
 }
 
-/// Crops a raw ScreenCast frame to the selected region, clamping to the
-/// frame's actual bounds — the frame's resolution is whatever the compositor
-/// negotiated, which should match the frame the region was selected on, but
-/// clamping avoids a panic if a later frame ever comes back smaller.
+/// Crops a raw captured frame to the selected region, clamping to the
+/// frame's actual bounds — the frame's resolution should match the one the
+/// region was selected on, but clamping avoids a panic if a later frame ever
+/// comes back smaller.
 fn crop_frame(frame: &image::RgbaImage, x: u32, y: u32, w: u32, h: u32) -> DynamicImage {
     let x = x.min(frame.width().saturating_sub(1));
     let y = y.min(frame.height().saturating_sub(1));
