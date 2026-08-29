@@ -185,19 +185,52 @@ fn run_native_tray(cfg: Arc<RwLock<AppConfig>>) -> anyhow::Result<()> {
         .with_icon(crate::icon::tray_icon(64)?)
         .build()?;
 
+    // On Windows, `tray-icon`/`muda` create a hidden window and rely on
+    // Win32 messages (right-click, menu selection, etc.) being pumped on the
+    // thread that created it — without this, the icon shows up but never
+    // responds to any interaction (confirmed by testing: a plain sleep loop
+    // here left the tray icon completely inert, no context menu on
+    // right-click). `PeekMessageW`/`PM_REMOVE` is used over `GetMessageW` so
+    // the loop can still periodically poll for history changes below rather
+    // than blocking indefinitely with no messages pending.
+    let mut last_refresh = std::time::Instant::now();
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        match crate::history::load_recent(tray_menu_entries(&cfg)) {
-            Ok(entries) => {
-                let current = fingerprint(&entries);
-                if current != last_fingerprint {
-                    if let Ok(menu) = build_menu(&entries) {
-                        tray.set_menu(Some(Box::new(menu)));
+        pump_platform_messages();
+        if last_refresh.elapsed() >= std::time::Duration::from_secs(2) {
+            last_refresh = std::time::Instant::now();
+            match crate::history::load_recent(tray_menu_entries(&cfg)) {
+                Ok(entries) => {
+                    let current = fingerprint(&entries);
+                    if current != last_fingerprint {
+                        if let Ok(menu) = build_menu(&entries) {
+                            tray.set_menu(Some(Box::new(menu)));
+                        }
+                        last_fingerprint = current;
                     }
-                    last_fingerprint = current;
                 }
+                Err(e) => tracing::debug!("failed to read history for the tray menu: {e:#}"),
             }
-            Err(e) => tracing::debug!("failed to read history for the tray menu: {e:#}"),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn pump_platform_messages() {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
+    };
+    unsafe {
+        let mut msg = MSG::default();
+        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
     }
 }
+
+// macOS isn't a supported target yet (see CLAUDE.md) — `run_native_tray`
+// still needs to typecheck there since it's only gated on `not(linux)`, not
+// `windows` specifically, so this is a no-op rather than a missing symbol.
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn pump_platform_messages() {}
