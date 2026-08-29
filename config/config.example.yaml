@@ -1,6 +1,6 @@
 # ocr-translate configuration (YAML)
 #
-# Copy to $XDG_CONFIG_HOME/ocr-translate/config.yaml (usually ~/.config/ocr-translate/config.yaml)
+# Copy to $XDG_CONFIG_HOME/ocr-translation/config.yaml (usually ~/.config/ocr-translation/config.yaml)
 # or generate this file directly with: ocr-translate init-config --format yaml
 
 general:
@@ -24,6 +24,24 @@ ocr:
   # on small/anti-aliased UI text; disable if it hurts your specific case.
   preprocess: true
 
+capture:
+  # built_in: grab the active monitor ourselves and crop it with our own
+  #           zoom/pan/select window. Portable across every X11/Wayland desktop.
+  # external: run `external_command` and let IT do the region selection (a
+  #           real live overlay on your actual desktop), then read the image
+  #           it leaves on the clipboard. Nicer where available, but depends
+  #           on a specific tool being installed, so it isn't the default —
+  #           we don't know which desktop environment you're running.
+  backend: built_in
+  # Only used when backend: external. Must leave a PNG image on the clipboard
+  # when it's done. Examples:
+  #   KDE:      spectacle -r -b -c
+  #   wlroots:  grim -g "$(slurp)" - | wl-copy
+  #   GNOME:    gnome-screenshot -a -c
+  external_command: "spectacle -r -b -c"
+  # How long to keep polling the clipboard for an image after the command exits.
+  external_timeout_secs: 10
+
 hotkey:
   # Requested global shortcut. On Wayland this is sent to the
   # org.freedesktop.portal.GlobalShortcuts portal (GNOME 43+ / KDE 6+ honor it,
@@ -42,6 +60,14 @@ popup:
   # Auto-dismiss the result popup after N seconds; 0 = stay open until closed.
   auto_close_secs: 0
 
+history:
+  # Record each successful translation to history.jsonl next to this file.
+  enabled: true
+  # Oldest entries beyond this are trimmed after each capture.
+  max_entries: 50
+  # How many of the most recent entries to list in the tray's History submenu.
+  tray_menu_entries: 5
+
 prompt:
   system: >-
     You are a precise translation engine. Translate the user's text and reply
@@ -52,9 +78,18 @@ prompt:
 
     {text}
 
-# Which entry in `providers` below is used by default. Override per-run with
-# `ocr-translate test-provider --provider <name>`.
+# Which entry in `providers` below is tried first. Override a one-off test
+# with `ocr-translate test-provider --provider <name>`.
 active_provider: lmstudio
+
+# If active_provider fails (server not running, bad key, network error, ...),
+# these are tried next, in order. The default below means: prefer your local
+# LM Studio, then fall back to Google's free public endpoint (no key needed)
+# — so the app still works even with nothing else configured. (Bing has no
+# equivalent free option — see the "bing" provider below — so it isn't listed
+# here by default; add it once you've set mode: private + a real Azure key.)
+fallback_providers:
+  - google
 
 providers:
   # A locally running LM Studio server (Settings -> Developer -> Local Server).
@@ -79,21 +114,37 @@ providers:
     api_key_env: OPENAI_API_KEY
     model: "gpt-4o-mini"
 
-  # DeepSeek's hosted API (OpenAI-compatible).
+  # DeepSeek's hosted API (OpenAI-compatible). Unlike Google/Bing below,
+  # DeepSeek has no free/public unauthenticated endpoint to fall back to —
+  # it's a paid (or trial-credit) LLM API, always requiring api_key_env.
   deepseek:
     kind: openai_compatible
     base_url: "https://api.deepseek.com/v1"
     api_key_env: DEEPSEEK_API_KEY
     model: "deepseek-chat"
 
-  # Google Cloud Translation API v2 (plain REST + API key, not the full Cloud SDK).
+  # Google Translate.
+  #   mode: public  — the free, unofficial endpoint translate.google.com's own
+  #                   page uses. No API key, no billing, no prompt sent (it's
+  #                   a real translation API, not an LLM). Undocumented and
+  #                   could change or rate-limit without notice.
+  #   mode: private — the official Cloud Translation API v2. Needs api_key/
+  #                   api_key_env and a billing-enabled Google Cloud project.
   google:
     kind: google_translate
-    api_key_env: GOOGLE_TRANSLATE_API_KEY
+    mode: public
+    # For private mode instead:
+    # mode: private
+    # api_key_env: GOOGLE_TRANSLATE_API_KEY
 
-  # Microsoft/Azure "Bing" Translator v3 REST API.
+  # Microsoft/Azure "Bing" Translator. Unlike Google, there's no reliable free
+  # public option here — the unofficial trick bing.com/translator used is now
+  # either dead or actively blocked by anti-bot protection (confirmed by
+  # testing), so mode: public just returns an error explaining that. Use the
+  # official Azure Translator v3 API instead: needs api_key/api_key_env
+  # (+ region for multi-service resources).
   bing:
     kind: bing_translate
+    mode: private
     api_key_env: AZURE_TRANSLATOR_KEY
-    # Only required for multi-service Azure resources.
     region: null

@@ -13,6 +13,7 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1"
 rust-ini = "0.21"
 anyhow = "1"
 thiserror = "1"
@@ -33,7 +34,11 @@ tray-icon = { version = "0.19", default-features = false }
 x11rb = "0.13"
 eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.28"
-arboard = "3"
+# wayland-data-control: without it, arboard silently uses its X11 backend
+# even under Wayland (WAYLAND_DISPLAY set), which can't see what a
+# Wayland-native tool like `wl-copy` placed on the clipboard — confirmed by
+# testing the `external` capture backend.
+arboard = { version = "3", features = ["wayland-data-control"] }
 chrono = "0.4"
 futures-util = "0.3"
 

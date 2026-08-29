@@ -9,22 +9,29 @@ hotkey/portal/tray support.
 
 ## How it works
 
-1. **Capture**: grabs a screenshot of just the monitor the cursor is
-   currently on (so a multi-monitor setup never hands OCR a giant combined
+1. **Capture**: by default, grabs a screenshot of just the monitor the cursor
+   is currently on (so a multi-monitor setup never hands OCR a giant combined
    image) — via the `org.freedesktop.portal.Screenshot` xdg-desktop-portal on
-   Wayland, or a direct X11 grab otherwise.
-2. **Select**: shows that screenshot in a borderless window; scroll to zoom,
-   right-drag to pan, and left-drag a rectangle to crop. This sidesteps the
-   fact that neither X11 nor Wayland has one portable "overlay the live
-   desktop" API, and zoom makes it practical to select small text precisely.
+   Wayland, or a direct X11 grab otherwise. Optionally, an external tool (e.g.
+   KDE's `spectacle`) can do the region selection instead — see
+   [Alternate capture backend](#alternate-capture-backend-external-tool).
+2. **Select** (built-in backend only): shows that screenshot in a borderless
+   window; scroll to zoom, right-drag to pan, and left-drag a rectangle to
+   crop. This sidesteps the fact that neither X11 nor Wayland has one portable
+   "overlay the live desktop" API, and zoom makes it practical to select small
+   text precisely.
 3. **OCR**: runs the crop through Tesseract (via `leptess`).
 4. **Translate**: sends the recognized text to a configured backend — an
    OpenAI-compatible chat API (LM Studio, Ollama, OpenAI, DeepSeek, ...),
-   Google Cloud Translation, or Microsoft/Azure ("Bing") Translator.
-5. **Popup**: shows original + translated text, with a copy button.
+   Google Cloud Translation, or Microsoft/Azure ("Bing") Translator — with an
+   optional ordered fallback chain if the first one fails. See
+   [Providers, fallback, and public/private modes](#providers-fallback-and-publicprivate-modes).
+5. **Popup**: shows original + translated text, with a copy button. Each
+   successful translation is also recorded to a local history — see
+   [History](#history).
 
-The app runs in the system tray with a simple **Capture** / **Quit** menu, in
-addition to whichever hotkey mechanism your desktop supports (see below).
+The app runs in the system tray with a **Capture** / **History** / **Quit**
+menu, in addition to whichever hotkey mechanism your desktop supports (see below).
 
 ## Requirements
 
@@ -71,15 +78,93 @@ its own `[provider.<name>]` section.
 
 Key fields:
 
-- `active_provider` — which entry in `providers` to use.
+- `active_provider` / `fallback_providers` — which entries in `providers` to
+  try, in order (see [Providers, fallback, and public/private modes](#providers-fallback-and-publicprivate-modes)).
 - `providers.<name>.kind` — `openai_compatible` | `google_translate` | `bing_translate`.
+- `providers.<name>.mode` — `public` | `private` (`google_translate`/`bing_translate` only).
 - `prompt.system` / `prompt.template` — fully customizable prompt sent to
   LLM-based providers. Template placeholders: `{source_lang}`, `{target_lang}`, `{text}`.
 - `ocr.languages` — Tesseract language code(s), e.g. `eng`, `eng+jpn`.
+- `capture.backend` — `built_in` | `external` (see [Alternate capture backend](#alternate-capture-backend-external-tool)).
 - `hotkey.capture_region` — accelerator string, e.g. `CTRL+ALT+O`.
+- `history.enabled` / `history.max_entries` — see [History](#history).
 
 API keys: prefer `api_key_env: SOME_ENV_VAR` over a literal `api_key` in the
 file, so secrets don't end up on disk in plaintext.
+
+## Providers, fallback, and public/private modes
+
+`active_provider` is tried first; if it fails (server not running, bad key,
+network error, ...) each entry in `fallback_providers` is tried next, in
+order, until one succeeds. This is meant for resilience, e.g. preferring a
+local LM Studio server but falling back to a public translation API if it's
+not running:
+
+```yaml
+active_provider: lmstudio
+fallback_providers:
+  - google
+```
+
+Google Translate and Bing/Azure Translator each support two `mode`s:
+
+- `mode: public` — a free, unofficial, no-key endpoint the provider's own
+  translator web page uses. **Only implemented for Google** — it's a genuine,
+  widely-used technique (the same one countless open-source translation tools
+  rely on) and worked in local testing, though it's undocumented and can be
+  rate-limited by Google without notice (you may see this if many requests
+  come from the same network). **Bing has no equivalent**: the old free-token
+  endpoint (`edge.microsoft.com/translate/auth`) is dead, and the current
+  bing.com/translator frontend is guarded by an abuse-prevention check that
+  requires replaying a full browser session's cookies to pass — that's
+  session spoofing to dodge bot detection, not a stable public API, so it
+  isn't implemented; `mode: public` for Bing just returns an explanatory error.
+- `mode: private` — the official, authenticated API (Cloud Translation v2 for
+  Google, Azure Translator v3 for Bing). Needs `api_key`/`api_key_env` (and
+  `region` for Bing, if using a multi-service Azure resource).
+
+Public mode never sends `prompt.system`/`prompt.template` — it's a real
+translation API, not an LLM, so there's no prompt to customize.
+
+DeepSeek (an LLM API, not a dedicated translation service) has no free/public
+option either — it always requires `api_key_env`.
+
+## Alternate capture backend (external tool)
+
+Instead of the built-in grab-and-crop flow, `capture.backend: external` runs
+a configurable shell command and reads the image it leaves on the clipboard,
+skipping our own crop window entirely. This is for external tools that do
+their own **live** region selection on the real desktop — a nicer experience
+than a still-image crop window where it's available. For example, on KDE:
+
+```yaml
+capture:
+  backend: external
+  external_command: "spectacle -r -b -c"
+  external_timeout_secs: 10
+```
+
+Other examples: `grim -g "$(slurp)" - | wl-copy` (wlroots compositors),
+`gnome-screenshot -a -c` (GNOME). This isn't the default — we don't know which
+desktop environment you're running, and it depends on a specific tool being
+installed — but it's a good option if you're on KDE/Sway/Hyprland/GNOME and
+want the nicer selection experience.
+
+## History
+
+Each successful translation is recorded to `history.jsonl` (JSON Lines) next
+to your config file, newest last on disk. Controlled by the `history.*`
+config keys (`enabled`, `max_entries`, `tray_menu_entries`).
+
+The tray's **History** submenu lists the most recent entries (refreshed every
+few seconds, since captures run in a separate process — see below); click one
+to reopen it in the popup, or use **Clear History** to delete it all. The
+same is available from the CLI:
+
+```sh
+ocr-translate show-history 0    # 0 = most recent
+ocr-translate clear-history
+```
 
 ## Running
 
@@ -170,3 +255,11 @@ git push origin v0.2.0
   a pure-Wayland session with no XWayland at all, it falls back to the
   primary monitor (X11 backend) or the full multi-monitor screenshot (portal
   backend), rather than failing.
+- The `external` capture backend detects a fresh capture by diffing the
+  clipboard image against what was there before the command ran, so capturing
+  the exact same pixels twice in a row reads as "cancelled" the second time —
+  not a concern in practice for OCR use.
+- The tray's History submenu only refreshes every ~2 seconds (captures run in
+  a separate process, so the tray has to notice new entries by re-reading
+  `history.jsonl` from disk), so a just-completed capture may take a moment
+  to appear there.

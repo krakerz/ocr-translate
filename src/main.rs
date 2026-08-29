@@ -1,6 +1,7 @@
 mod capture;
 mod config;
 mod daemon;
+mod history;
 mod hotkey;
 mod icon;
 mod ocr;
@@ -48,6 +49,11 @@ enum Command {
         #[arg(default_value = "Hello, world!")]
         text: String,
     },
+    /// Show one history entry (0 = most recent) in the popup window. Used
+    /// internally by the tray's History submenu.
+    ShowHistory { index: usize },
+    /// Delete all saved history.
+    ClearHistory,
     /// Reset the config file(s) in the default config directory to the
     /// bundled example. Config is created automatically on first run, so
     /// this is only needed to restore defaults.
@@ -72,6 +78,9 @@ fn main() -> Result<()> {
     if let Some(Command::InitConfig { format, force }) = &cli.command {
         return config::reset_default_config(format, *force);
     }
+    if let Some(Command::ClearHistory) = &cli.command {
+        return history::clear();
+    }
 
     let cfg = config::load(cli.config.as_deref())?;
 
@@ -79,14 +88,16 @@ fn main() -> Result<()> {
         Command::Run => daemon::run(cfg, cli.config),
         Command::Capture => run_capture_cycle(&cfg),
         Command::TestProvider { provider, text } => test_provider(&cfg, provider, &text),
-        Command::InitConfig { .. } => unreachable!("handled above"),
+        Command::ShowHistory { index } => show_history(&cfg, index),
+        Command::ClearHistory | Command::InitConfig { .. } => unreachable!("handled above"),
     }
 }
 
-/// Full pipeline: grab the active monitor, let the user crop a region, OCR it,
-/// send it to the configured translation provider, then show the result in a
-/// popup. Any failure is also surfaced in a popup window, since this typically
-/// runs with no attached terminal (triggered by a hotkey or the tray menu).
+/// Full pipeline: acquire a screen region (see `capture::acquire`), OCR it,
+/// send it to the configured translation provider (with fallback), then show
+/// the result in a popup and record it to history. Any failure is also
+/// surfaced in a popup window, since this typically runs with no attached
+/// terminal (triggered by a hotkey or the tray menu).
 pub fn run_capture_cycle(cfg: &AppConfig) -> Result<()> {
     match run_capture_cycle_inner(cfg) {
         Ok(()) => Ok(()),
@@ -99,10 +110,8 @@ pub fn run_capture_cycle(cfg: &AppConfig) -> Result<()> {
 }
 
 fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
-    tracing::info!("capturing the active monitor...");
-    let full = capture::grab_active_monitor()?;
-
-    let Some(cropped) = capture::select_crop(&full)? else {
+    tracing::info!("capturing...");
+    let Some(cropped) = capture::acquire(&cfg.capture)? else {
         tracing::info!("selection cancelled");
         return Ok(());
     };
@@ -114,13 +123,33 @@ fn run_capture_cycle_inner(cfg: &AppConfig) -> Result<()> {
     }
     tracing::info!("OCR text: {text}");
 
-    tracing::info!("translating via '{}'...", cfg.active_provider);
-    let translator = translate::build(cfg)?;
-    let translated = translator.translate(translate::TranslateRequest {
-        text: &text,
-        source_lang: &cfg.general.source_lang,
-        target_lang: &cfg.general.target_lang,
-    })?;
+    tracing::info!(
+        "translating (active provider: '{}')...",
+        cfg.active_provider
+    );
+    let (provider_used, translated) = translate::translate_with_fallback(
+        cfg,
+        translate::TranslateRequest {
+            text: &text,
+            source_lang: &cfg.general.source_lang,
+            target_lang: &cfg.general.target_lang,
+        },
+    )?;
+    tracing::info!("translated via '{provider_used}'");
+
+    if cfg.history.enabled {
+        let entry = history::HistoryEntry {
+            timestamp: chrono::Local::now().to_rfc3339(),
+            provider: provider_used,
+            source_lang: cfg.general.source_lang.clone(),
+            target_lang: cfg.general.target_lang.clone(),
+            original: text.clone(),
+            translated: translated.clone(),
+        };
+        if let Err(e) = history::append(&entry, cfg.history.max_entries) {
+            tracing::warn!("failed to record history: {e:#}");
+        }
+    }
 
     popup::show_result(&text, &translated, &cfg.popup)?;
     Ok(())
@@ -137,5 +166,13 @@ fn test_provider(cfg: &AppConfig, provider: Option<String>, text: &str) -> Resul
         target_lang: &cfg.general.target_lang,
     })?;
     println!("{translated}");
+    Ok(())
+}
+
+fn show_history(cfg: &AppConfig, index: usize) -> Result<()> {
+    let Some(entry) = history::get(index)? else {
+        bail!("no history entry at index {index}");
+    };
+    popup::show_result(&entry.original, &entry.translated, &cfg.popup)?;
     Ok(())
 }

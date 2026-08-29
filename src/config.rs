@@ -17,10 +17,15 @@ const EXAMPLE_CONF: &str = include_str!("../config/config.example.conf");
 pub struct AppConfig {
     pub general: GeneralConfig,
     pub ocr: OcrConfig,
+    pub capture: CaptureConfig,
     pub hotkey: HotkeyConfig,
     pub popup: PopupConfig,
+    pub history: HistoryConfig,
     pub prompt: PromptConfig,
     pub active_provider: String,
+    /// Tried, in order, if `active_provider` fails (connection error, HTTP
+    /// error, missing key, ...). Empty means no fallback.
+    pub fallback_providers: Vec<String>,
     pub providers: HashMap<String, ProviderConfig>,
 }
 
@@ -31,6 +36,7 @@ impl Default for AppConfig {
             "lmstudio".to_string(),
             ProviderConfig {
                 kind: ProviderKind::OpenAiCompatible,
+                mode: ProviderMode::Private,
                 base_url: Some("http://localhost:1234/v1".to_string()),
                 api_key: None,
                 api_key_env: None,
@@ -42,10 +48,13 @@ impl Default for AppConfig {
         Self {
             general: GeneralConfig::default(),
             ocr: OcrConfig::default(),
+            capture: CaptureConfig::default(),
             hotkey: HotkeyConfig::default(),
             popup: PopupConfig::default(),
+            history: HistoryConfig::default(),
             prompt: PromptConfig::default(),
             active_provider: "lmstudio".to_string(),
+            fallback_providers: Vec::new(),
             providers,
         }
     }
@@ -88,6 +97,45 @@ impl Default for OcrConfig {
             tessdata_dir: None,
             psm: Some(6),
             preprocess: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum CaptureBackend {
+    /// Grab the active monitor ourselves and crop it with our own
+    /// zoom/pan/select window (`capture::grab_active_monitor` + `select_crop`).
+    /// Portable across every X11/Wayland desktop.
+    #[serde(rename = "built_in")]
+    BuiltIn,
+    /// Run an external screenshot tool that does its own live region
+    /// selection on the real desktop and leaves a PNG on the clipboard (e.g.
+    /// KDE's `spectacle -r -b -c`), then read that image back via the
+    /// clipboard instead of our own crop UI. Nicer where available, but
+    /// depends on a specific external tool being installed, so this is opt-in
+    /// rather than the default.
+    #[serde(rename = "external")]
+    External,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CaptureConfig {
+    pub backend: CaptureBackend,
+    /// Shell command run when `backend = external`. Must leave a PNG image on
+    /// the clipboard when it's done (e.g. KDE's `spectacle -r -b -c`, or
+    /// `grim -g "$(slurp)" - | wl-copy` on wlroots compositors).
+    pub external_command: String,
+    /// How long to keep polling the clipboard for an image after the command exits.
+    pub external_timeout_secs: u64,
+}
+
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self {
+            backend: CaptureBackend::BuiltIn,
+            external_command: "spectacle -r -b -c".to_string(),
+            external_timeout_secs: 10,
         }
     }
 }
@@ -138,6 +186,27 @@ impl Default for PopupConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+pub struct HistoryConfig {
+    /// Record each successful translation to `history.jsonl` in the config directory.
+    pub enabled: bool,
+    /// Oldest entries beyond this are trimmed after each capture.
+    pub max_entries: usize,
+    /// How many of the most recent entries to list in the tray's History submenu.
+    pub tray_menu_entries: usize,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_entries: 50,
+            tray_menu_entries: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct PromptConfig {
     pub system: String,
     /// Placeholders: {source_lang} {target_lang} {text}
@@ -165,17 +234,33 @@ pub enum ProviderKind {
     BingTranslate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum ProviderMode {
+    /// The free, unofficial, no-key web endpoint the provider's own
+    /// translator page uses (only meaningful for `google_translate` /
+    /// `bing_translate`; ignored otherwise). Unofficial and undocumented, so
+    /// it can change or rate-limit without notice, but it's what makes
+    /// zero-config translation possible out of the box.
+    #[serde(rename = "public")]
+    Public,
+    /// The official, authenticated API — requires `api_key`/`api_key_env`
+    /// (and `region` for Bing/Azure).
+    #[serde(rename = "private")]
+    Private,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
+    pub mode: ProviderMode,
     pub base_url: Option<String>,
     /// Literal API key. Prefer `api_key_env` to avoid storing secrets in the config file.
     pub api_key: Option<String>,
     /// Name of an environment variable to read the API key from at startup.
     pub api_key_env: Option<String>,
     pub model: Option<String>,
-    /// Azure region, required by Bing/Azure Translator.
+    /// Azure region, required by Bing/Azure Translator in `private` mode.
     pub region: Option<String>,
     pub timeout_secs: u64,
 }
@@ -184,6 +269,7 @@ impl Default for ProviderConfig {
     fn default() -> Self {
         Self {
             kind: ProviderKind::OpenAiCompatible,
+            mode: ProviderMode::Private,
             base_url: None,
             api_key: None,
             api_key_env: None,
@@ -307,11 +393,13 @@ fn load_yaml(path: &Path) -> Result<AppConfig> {
 }
 
 /// `.conf` files use INI syntax. Top-level scalar sections (`[general]`, `[ocr]`,
-/// `[hotkey]`, `[popup]`, `[prompt]`) map onto the matching struct fields; any
-/// section named `[provider.<name>]` becomes an entry in `providers`, e.g.:
+/// `[capture]`, `[hotkey]`, `[popup]`, `[history]`, `[prompt]`) map onto the
+/// matching struct fields; any section named `[provider.<name>]` becomes an
+/// entry in `providers`, e.g.:
 ///
 /// ```ini
 /// active_provider = openai
+/// fallback_providers = google,bing
 ///
 /// [provider.openai]
 /// kind = openai_compatible
@@ -328,6 +416,13 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
     if let Some(root) = ini.section(None::<String>) {
         if let Some(v) = root.get("active_provider") {
             cfg.active_provider = v.to_string();
+        }
+        if let Some(v) = root.get("fallback_providers") {
+            cfg.fallback_providers = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
     }
 
@@ -352,6 +447,12 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(default)
         };
+        let get_usize = |k: &str, default: usize| {
+            props
+                .get(k)
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(default)
+        };
 
         match name {
             "general" => {
@@ -373,6 +474,19 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 cfg.ocr.psm = props.get("psm").and_then(|v| v.parse::<i32>().ok());
                 cfg.ocr.preprocess = get_bool("preprocess", cfg.ocr.preprocess);
             }
+            "capture" => {
+                if let Some(v) = get("backend") {
+                    cfg.capture.backend = match v.as_str() {
+                        "external" => CaptureBackend::External,
+                        _ => CaptureBackend::BuiltIn,
+                    };
+                }
+                if let Some(v) = get("external_command") {
+                    cfg.capture.external_command = v;
+                }
+                cfg.capture.external_timeout_secs =
+                    get_u64("external_timeout_secs", cfg.capture.external_timeout_secs);
+            }
             "hotkey" => {
                 if let Some(v) = get("capture_region") {
                     cfg.hotkey.capture_region = v;
@@ -386,6 +500,12 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                 cfg.popup.font_size = get_f32("font_size", cfg.popup.font_size);
                 cfg.popup.always_on_top = get_bool("always_on_top", cfg.popup.always_on_top);
                 cfg.popup.auto_close_secs = get_u64("auto_close_secs", cfg.popup.auto_close_secs);
+            }
+            "history" => {
+                cfg.history.enabled = get_bool("enabled", cfg.history.enabled);
+                cfg.history.max_entries = get_usize("max_entries", cfg.history.max_entries);
+                cfg.history.tray_menu_entries =
+                    get_usize("tray_menu_entries", cfg.history.tray_menu_entries);
             }
             "prompt" => {
                 if let Some(v) = get("system") {
@@ -402,8 +522,13 @@ fn load_ini(path: &Path) -> Result<AppConfig> {
                     Some("bing_translate") => ProviderKind::BingTranslate,
                     _ => ProviderKind::OpenAiCompatible,
                 };
+                let mode = match get("mode").as_deref() {
+                    Some("public") => ProviderMode::Public,
+                    _ => ProviderMode::Private,
+                };
                 let provider = ProviderConfig {
                     kind,
+                    mode,
                     base_url: get("base_url"),
                     api_key: get("api_key"),
                     api_key_env: get("api_key_env"),
