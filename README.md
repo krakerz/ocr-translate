@@ -32,8 +32,9 @@ Translate** / **Live Region Translate** / **History** / **Quit** menu.
 download the archive for your OS from the [Releases page](../../releases),
 extract it, and run `ocr-translate` (`ocr-translate.exe` on Windows). Nothing
 else to install — Tesseract's runtime DLLs (Windows) and English + Japanese
-OCR data (matching the default config's `jpn+eng`) are already bundled
-inside the archive. For a different OCR language, drop its `.traineddata`
+(including vertical Japanese, e.g. manga) OCR data (matching the default
+config's `jpn+eng+jpn_vert`) are already bundled inside the archive. For a
+different OCR language, drop its `.traineddata`
 file into the `tessdata` folder next to the binary (or set
 `ocr.tessdata_dir`/`TESSDATA_PREFIX`) — see step 6 below for where to get one.
 Linux still needs Tesseract + Leptonica installed via your distro's package
@@ -120,8 +121,9 @@ above if you just want to run the app.
    higher accuracy), then either drop them in a `tessdata` folder next to
    `target\release\ocr-translate.exe`, set `tessdata_dir` in `config.yaml` to
    wherever you put them, or set the `TESSDATA_PREFIX` environment variable.
-   Packaged release archives already bundle English and Japanese (`eng`,
-   `jpn`) — the default config's `jpn+eng`.
+   Packaged release archives already bundle English, Japanese, and vertical
+   Japanese (`eng`, `jpn`, `jpn_vert`) — the default config's
+   `jpn+eng+jpn_vert`.
 
 ## Configuration
 
@@ -280,6 +282,11 @@ place on screen.
 4. From then on, polls every `region_translate.poll_interval_ms` (default
    1s), OCRs just that rectangle, and re-translates only when the
    recognized text changes.
+
+You can watch more than one region at once — click **+ Add Region** in the
+window to select another rectangle (previously-selected ones are outlined
+in blue so you can see where they are), and it's added alongside the
+existing one(s), each translated independently.
 
 Never recorded to history. Start it from the tray's **Live Region
 Translate** menu item, or:

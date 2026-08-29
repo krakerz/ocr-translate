@@ -1,3 +1,5 @@
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -27,20 +29,42 @@ impl Status {
     }
 }
 
-#[derive(Default)]
-struct LiveState {
+/// One watched region's rectangle plus its independent OCR/translate state
+/// — each region is tracked separately (own last-seen text for dedup, own
+/// status), so one region updating doesn't affect another's displayed
+/// content. Indices into the shared `Vec<RegionState>` stay stable across
+/// the session's lifetime since regions are only ever appended to, never
+/// removed.
+struct RegionState {
+    rect: (u32, u32, u32, u32),
     source: String,
     translated: String,
     status: Option<Status>,
+    last_text: Option<String>,
 }
 
-/// Watches a fixed screen region via a continuous capture session (Linux:
-/// portal `ScreenCast` + PipeWire; Windows: `xcap`'s DXGI-based
-/// `VideoRecorder` — see `capture::RegionSession`): OCRs it every
-/// `poll_interval_ms`, and re-translates whenever the recognized text
-/// changes. Deliberately never touches `history`, matching
-/// `live_translate::run` — this is for quick, disposable lookups (subtitles,
-/// a status readout, a chat window), not a record of what's been translated.
+impl RegionState {
+    fn new(rect: (u32, u32, u32, u32)) -> Self {
+        Self {
+            rect,
+            source: String::new(),
+            translated: String::new(),
+            status: None,
+            last_text: None,
+        }
+    }
+}
+
+type SharedRegions = Arc<Mutex<Vec<RegionState>>>;
+
+/// Watches one or more fixed screen regions via a continuous capture
+/// session (Linux: portal `ScreenCast` + PipeWire; Windows: `xcap`'s
+/// DXGI-based `VideoRecorder` — see `capture::RegionSession`): OCRs each
+/// region every `poll_interval_ms`, and re-translates whenever its
+/// recognized text changes, independently of the others. Deliberately
+/// never touches `history`, matching `live_translate::run` — this is for
+/// quick, disposable lookups (subtitles, a status readout, a chat window),
+/// not a record of what's been translated.
 ///
 /// Runs as its own process (spawned by the daemon, like `capture` and
 /// `watch-clipboard`) for the same reason those do: this opens eframe/winit
@@ -80,7 +104,12 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
     tracing::info!(
         "starting a screen capture session (on Linux, your compositor may ask you to pick a screen/window to share)..."
     );
-    let session = RegionSession::start().context("failed to start the screen capture session")?;
+    // Shared (not moved into the watcher thread outright) via `Arc`, since
+    // the main thread also needs a frame each time the user adds another
+    // region later — `latest_frame` only needs `&self`, so both the
+    // watcher thread and this one can hold their own clone freely.
+    let session =
+        Arc::new(RegionSession::start().context("failed to start the screen capture session")?);
 
     // On Linux, the compositor's own "share screen with..." picker dialog is
     // still visible on the real desktop for a moment after negotiation
@@ -101,21 +130,14 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
         .context("no frame received from the screen capture session")?;
 
     let Some(rect) =
-        crate::capture::select_region_rect(&DynamicImage::ImageRgba8(first_frame), &cfg.popup)?
+        crate::capture::select_region_rect(&DynamicImage::ImageRgba8(first_frame), &cfg.popup, &[])?
     else {
         tracing::info!("region selection cancelled");
         return Ok(());
     };
 
-    let state = Arc::new(Mutex::new(LiveState::default()));
-    spawn_watcher(cfg.clone(), session, rect, state.clone());
-
-    let app = LiveRegionApp {
-        state,
-        show_source: cfg.region_translate.show_source_by_default,
-        font_size: cfg.translate.font_size,
-        copied_flash: None,
-    };
+    let regions: SharedRegions = Arc::new(Mutex::new(vec![RegionState::new(rect)]));
+    spawn_watcher(cfg.clone(), session.clone(), regions.clone());
 
     let (width, height) =
         crate::capture::clamp_to_screen(cfg.translate.width, cfg.translate.height);
@@ -128,15 +150,57 @@ pub fn run(cfg: &AppConfig) -> Result<()> {
         ..Default::default()
     };
 
-    eframe::run_native(
-        "ocr-translate-live-region",
-        native_options,
-        Box::new(|cc| {
-            crate::fonts::install_cjk_fallback(&cc.egui_ctx);
-            Ok(Box::new(app))
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("live region translate window failed: {e}"))?;
+    // The window closes and reopens each time the user adds a region (see
+    // `LiveRegionApp::update`'s "+ Add Region" button) rather than staying
+    // open throughout — eframe/winit don't support two `run_native` windows
+    // open at once in one process, so the region-selection overlay (its own
+    // `select_region_rect` window) and this results window take turns
+    // instead. The background watcher thread (and the capture session
+    // itself) keeps running the whole time regardless, so no translation
+    // progress is lost while a window is briefly closed between the two.
+    let add_region_requested = Rc::new(Cell::new(false));
+    loop {
+        let app = LiveRegionApp {
+            regions: regions.clone(),
+            show_source: cfg.region_translate.show_source_by_default,
+            font_size: cfg.translate.font_size,
+            copied_flash: None,
+            add_region_requested: add_region_requested.clone(),
+        };
+
+        eframe::run_native(
+            "ocr-translate-live-region",
+            native_options.clone(),
+            Box::new(|cc| {
+                crate::fonts::install_cjk_fallback(&cc.egui_ctx);
+                Ok(Box::new(app))
+            }),
+        )
+        .map_err(|e| anyhow::anyhow!("live region translate window failed: {e}"))?;
+
+        if !add_region_requested.get() {
+            break;
+        }
+        add_region_requested.set(false);
+
+        let frame = match wait_for_frame(&session, Duration::from_secs(15)) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("failed to grab a frame for the new region: {e:#}");
+                continue;
+            }
+        };
+        let existing: Vec<_> = regions.lock().unwrap().iter().map(|r| r.rect).collect();
+        match crate::capture::select_region_rect(
+            &DynamicImage::ImageRgba8(frame),
+            &cfg.popup,
+            &existing,
+        ) {
+            Ok(Some(new_rect)) => regions.lock().unwrap().push(RegionState::new(new_rect)),
+            Ok(None) => tracing::info!("adding a region was cancelled"),
+            Err(e) => tracing::warn!("failed to select a new region: {e:#}"),
+        }
+    }
     Ok(())
 }
 
@@ -154,43 +218,61 @@ fn wait_for_frame(session: &RegionSession, timeout: Duration) -> Result<image::R
     }
 }
 
-fn spawn_watcher(
-    cfg: AppConfig,
-    session: RegionSession,
-    rect: (u32, u32, u32, u32),
-    state: Arc<Mutex<LiveState>>,
-) {
+fn spawn_watcher(cfg: AppConfig, session: Arc<RegionSession>, regions: SharedRegions) {
     std::thread::spawn(move || {
-        // `session` is held here for as long as this thread runs; dropping
-        // it would end the capture session.
+        // `session` (shared via `Arc` with the main thread, which also
+        // needs a frame each time a region is added) is held here for as
+        // long as this thread runs; dropping every clone of it would end
+        // the capture session, but this thread's own clone alone keeps it
+        // alive even after `run()`'s main loop finishes using its copy.
         let poll_interval = Duration::from_millis(cfg.region_translate.poll_interval_ms.max(100));
-        let (x, y, w, h) = rect;
-        let mut last_text: Option<String> = None;
 
         loop {
             std::thread::sleep(poll_interval);
             let Some(frame) = session.latest_frame() else {
                 continue;
             };
-            let cropped = crop_frame(&frame, x, y, w, h);
-            let text = match crate::ocr::recognize(&cropped, &cfg.ocr) {
-                Ok(t) => t,
-                Err(e) => {
-                    state.lock().unwrap().status =
-                        Some(Status::Error(format!("OCR failed: {e:#}")));
+
+            // Snapshot the current rectangles rather than holding the lock
+            // for the whole loop body below (OCR + translation are slow;
+            // holding the lock that long would stall the UI thread's own
+            // reads for rendering). New regions added mid-poll just get
+            // picked up on the next tick.
+            let rects: Vec<(u32, u32, u32, u32)> =
+                regions.lock().unwrap().iter().map(|r| r.rect).collect();
+
+            for (index, &(x, y, w, h)) in rects.iter().enumerate() {
+                let cropped = crop_frame(&frame, x, y, w, h);
+                let text = match crate::ocr::recognize(&cropped, &cfg.ocr) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        if let Some(r) = regions.lock().unwrap().get_mut(index) {
+                            r.status = Some(Status::Error(format!("OCR failed: {e:#}")));
+                        }
+                        continue;
+                    }
+                };
+                if text.is_empty() {
                     continue;
                 }
-            };
-            if text.is_empty() || last_text.as_deref() == Some(text.as_str()) {
-                continue;
+                let changed = {
+                    let mut guard = regions.lock().unwrap();
+                    let Some(r) = guard.get_mut(index) else {
+                        continue;
+                    };
+                    if r.last_text.as_deref() == Some(text.as_str()) {
+                        false
+                    } else {
+                        r.last_text = Some(text.clone());
+                        r.source = text.clone();
+                        r.status = Some(Status::Translating);
+                        true
+                    }
+                };
+                if changed {
+                    translate_and_store(&cfg, &text, &regions, index);
+                }
             }
-            last_text = Some(text.clone());
-            {
-                let mut s = state.lock().unwrap();
-                s.source = text.clone();
-                s.status = Some(Status::Translating);
-            }
-            translate_and_store(&cfg, &text, &state);
         }
     });
 }
@@ -207,7 +289,7 @@ fn crop_frame(frame: &image::RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Dynam
     DynamicImage::ImageRgba8(frame.clone()).crop_imm(x, y, w, h)
 }
 
-fn translate_and_store(cfg: &AppConfig, text: &str, state: &Arc<Mutex<LiveState>>) {
+fn translate_and_store(cfg: &AppConfig, text: &str, regions: &SharedRegions, index: usize) {
     let result = translate::translate_with_fallback(
         cfg,
         TranslateRequest {
@@ -216,23 +298,32 @@ fn translate_and_store(cfg: &AppConfig, text: &str, state: &Arc<Mutex<LiveState>
             target_lang: &cfg.general.target_lang,
         },
     );
-    let mut s = state.lock().unwrap();
+    let mut guard = regions.lock().unwrap();
+    let Some(r) = guard.get_mut(index) else {
+        return;
+    };
     match result {
         Ok((provider, translated)) => {
-            s.translated = translated;
-            s.status = Some(Status::Done { provider });
+            r.translated = translated;
+            r.status = Some(Status::Done { provider });
         }
         Err(e) => {
-            s.status = Some(Status::Error(format!("{e:#}")));
+            r.status = Some(Status::Error(format!("{e:#}")));
         }
     }
 }
 
 struct LiveRegionApp {
-    state: Arc<Mutex<LiveState>>,
+    regions: SharedRegions,
     show_source: bool,
     font_size: f32,
-    copied_flash: Option<Instant>,
+    /// Which region's "Copy" button was last clicked, and when — for the
+    /// brief "Copied!" confirmation next to that specific region's button.
+    copied_flash: Option<(usize, Instant)>,
+    /// Set by the "+ Add Region" button, read by `run()` after this
+    /// viewport closes to decide whether to reopen it (with the new region
+    /// added) or actually quit.
+    add_region_requested: Rc<Cell<bool>>,
 }
 
 impl eframe::App for LiveRegionApp {
@@ -242,14 +333,31 @@ impl eframe::App for LiveRegionApp {
             return;
         }
 
-        let (source, translated, status_label) = {
-            let s = self.state.lock().unwrap();
-            let status = s
-                .status
-                .as_ref()
-                .map(Status::label)
-                .unwrap_or_else(|| Status::Watching.label());
-            (s.source.clone(), s.translated.clone(), status)
+        if let Some((_, t)) = self.copied_flash {
+            if t.elapsed().as_secs_f32() >= 1.5 {
+                self.copied_flash = None;
+            }
+        }
+
+        struct RegionSnapshot {
+            status_label: String,
+            source: String,
+            translated: String,
+        }
+        let snapshot: Vec<RegionSnapshot> = {
+            let guard = self.regions.lock().unwrap();
+            guard
+                .iter()
+                .map(|r| RegionSnapshot {
+                    status_label: r
+                        .status
+                        .as_ref()
+                        .map(Status::label)
+                        .unwrap_or_else(|| Status::Watching.label()),
+                    source: r.source.clone(),
+                    translated: r.translated.clone(),
+                })
+                .collect()
         };
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -259,46 +367,54 @@ impl eframe::App for LiveRegionApp {
                 ui.heading("Live Region Translate");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(&mut self.show_source, "Show source");
+                    if ui.button("+ Add Region").clicked() {
+                        self.add_region_requested.set(true);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 });
             });
-            ui.label(egui::RichText::new(status_label).weak());
             ui.separator();
 
-            if self.show_source {
-                ui.label(egui::RichText::new("Source").weak());
-                egui::ScrollArea::vertical()
-                    .id_source("region_source")
-                    .max_height(ui.available_height() * 0.4)
-                    .show(ui, |ui| {
-                        ui.add(egui::Label::new(&source).wrap());
-                    });
-                ui.add_space(8.0);
-            }
-
-            ui.label(egui::RichText::new("Translated").weak());
             egui::ScrollArea::vertical()
-                .id_source("region_translated")
+                .id_source("regions_scroll")
                 .show(ui, |ui| {
-                    ui.add(egui::Label::new(&translated).wrap());
+                    for (index, region) in snapshot.iter().enumerate() {
+                        ui.group(|ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.strong(format!("Region {}", index + 1));
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui.small_button("Copy").clicked() {
+                                            ctx.copy_text(region.translated.clone());
+                                            self.copied_flash = Some((index, Instant::now()));
+                                        }
+                                        if matches!(self.copied_flash, Some((i, _)) if i == index)
+                                        {
+                                            ui.label("Copied!");
+                                        }
+                                    },
+                                );
+                            });
+                            ui.label(egui::RichText::new(&region.status_label).weak());
+
+                            if self.show_source {
+                                ui.label(egui::RichText::new("Source").weak());
+                                ui.add(egui::Label::new(&region.source).wrap());
+                                ui.add_space(4.0);
+                            }
+                            ui.label(egui::RichText::new("Translated").weak());
+                            ui.add(egui::Label::new(&region.translated).wrap());
+                        });
+                        ui.add_space(6.0);
+                    }
                 });
 
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Copy translation").clicked() {
-                    ctx.copy_text(translated.clone());
-                    self.copied_flash = Some(Instant::now());
-                }
-                if ui.button("Close").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                if let Some(t) = self.copied_flash {
-                    if t.elapsed().as_secs_f32() < 1.5 {
-                        ui.label("Copied!");
-                    } else {
-                        self.copied_flash = None;
-                    }
-                }
-            });
+            ui.add_space(4.0);
+            if ui.button("Close").clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         });
 
         ctx.request_repaint_after(Duration::from_millis(200));

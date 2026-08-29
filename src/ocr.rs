@@ -32,8 +32,8 @@ pub fn recognize(image: &DynamicImage, cfg: &OcrConfig) -> Result<String> {
 
 /// Packaged release archives (both Linux and Windows, see `autobuild.yml`)
 /// bundle a `tessdata/` folder next to the binary, so the app works with the
-/// default `jpn+eng` languages out of the box, no manual setup or system
-/// package needed. Only used as a fallback when `ocr.tessdata_dir` isn't set
+/// default `jpn+eng+jpn_vert` languages out of the box, no manual setup or
+/// system package needed. Only used as a fallback when `ocr.tessdata_dir` isn't set
 /// explicitly, so a user who already has `TESSDATA_PREFIX`/`tessdata_dir`
 /// configured (e.g. relying on a distro's own Tesseract data package on
 /// Linux) isn't overridden. Resolved from `current_exe()`'s directory rather

@@ -18,7 +18,7 @@ pub fn select_crop(
     image: &DynamicImage,
     cfg: &CaptureWindowConfig,
 ) -> Result<Option<DynamicImage>> {
-    let Some((x0, y0, w, h)) = select_region_rect(image, cfg)? else {
+    let Some((x0, y0, w, h)) = select_region_rect(image, cfg, &[])? else {
         return Ok(None);
     };
     Ok(Some(image.crop_imm(x0, y0, w, h)))
@@ -28,10 +28,15 @@ pub fn select_crop(
 /// chosen rectangle (in `image`'s pixel space) instead of the cropped image
 /// itself — used by the live-region-translate feature, which needs to keep
 /// re-cropping the same rectangle out of subsequent ScreenCast frames rather
-/// than a single still image.
+/// than a single still image. `existing` rectangles (already-watched regions,
+/// when adding another one to a running Live Region Translate session) are
+/// drawn as static outlines so the user can see where those are while
+/// picking a new one — purely visual, doesn't block selecting an
+/// overlapping area.
 pub fn select_region_rect(
     image: &DynamicImage,
     cfg: &CaptureWindowConfig,
+    existing: &[(u32, u32, u32, u32)],
 ) -> Result<Option<(u32, u32, u32, u32)>> {
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
@@ -49,6 +54,7 @@ pub fn select_region_rect(
         pan: egui::Vec2::ZERO,
         drag_start: None,
         drag_current: None,
+        existing: existing.to_vec(),
         result: result.clone(),
     };
 
@@ -108,6 +114,10 @@ struct SelectorApp {
     pan: egui::Vec2,
     drag_start: Option<egui::Pos2>,
     drag_current: Option<egui::Pos2>,
+    /// Already-selected regions (image pixel space) to draw as static
+    /// outlines, e.g. when adding another region to a running Live Region
+    /// Translate session — purely visual, never interactive.
+    existing: Vec<(u32, u32, u32, u32)>,
     result: Arc<Mutex<Option<((u32, u32), (u32, u32))>>>,
 }
 
@@ -208,6 +218,17 @@ impl eframe::App for SelectorApp {
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     egui::Color32::WHITE,
                 );
+
+                for &(x, y, w, h) in &self.existing {
+                    let min = image_origin + egui::vec2(x as f32, y as f32) * scale;
+                    let size = egui::vec2(w as f32, h as f32) * scale;
+                    let rect = egui::Rect::from_min_size(min, size);
+                    ui.painter().rect_stroke(
+                        rect,
+                        0.0,
+                        egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(80, 160, 255)),
+                    );
+                }
 
                 if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
                     let selection = egui::Rect::from_two_pos(start, current);

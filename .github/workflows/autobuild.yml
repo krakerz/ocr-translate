@@ -3,10 +3,16 @@ name: Autobuild
 # Runs on every push to main — covers both a direct push and a PR merge,
 # since merging a PR into main is itself a push to main. Builds the release
 # binary for both Linux and Windows, packages each into an archive, and
-# updates a single rolling DRAFT GitHub Release ("latest", titled with the
-# current app version from Cargo.toml) with both archives attached. Nothing
-# is published automatically — review the draft on the repo's Releases page
-# and click "Publish release" when ready.
+# creates a fresh DRAFT GitHub Release (tagged v<Cargo.toml version>-<run
+# number>, so every run gets its own release instead of overwriting the
+# same one) with both archives attached. Nothing is published automatically
+# — review the draft on the repo's Releases page and click "Publish
+# release" when ready.
+#
+# The tag includes the run number, not just the version, so two pushes
+# without a version bump in between still each get their own release
+# instead of colliding on the same tag (confirmed happening — every build
+# was stacking onto one "latest" release before this).
 #
 # Windows is packaged and attached here too, but newer and less proven than
 # Linux — see CLAUDE.md/TODO.md. `release-windows` runs after `release-linux`
@@ -58,13 +64,17 @@ jobs:
           cp target/release/ocr-translate "$DIST/"
           # Distro Tesseract packages don't necessarily include trained
           # language data either — bundle the languages config.example.yaml's
-          # ocr.languages defaults to (jpn+eng) so the app works with zero
-          # manual setup. src/ocr.rs's bundled_tessdata_dir() looks for this
-          # exact "tessdata" folder next to the binary as a fallback when
-          # ocr.tessdata_dir isn't set in config.
+          # ocr.languages defaults to (jpn+eng+jpn_vert) so the app works
+          # with zero manual setup — jpn_vert is a separate trained model
+          # for vertical Japanese text (manga and similar), not just a psm
+          # setting, see config.example.yaml. src/ocr.rs's
+          # bundled_tessdata_dir() looks for this exact "tessdata" folder
+          # next to the binary as a fallback when ocr.tessdata_dir isn't
+          # set in config.
           mkdir -p "$DIST/tessdata"
           curl -sSL -o "$DIST/tessdata/eng.traineddata" https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata
           curl -sSL -o "$DIST/tessdata/jpn.traineddata" https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn.traineddata
+          curl -sSL -o "$DIST/tessdata/jpn_vert.traineddata" https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn_vert.traineddata
           cp README.md LICENSE "$DIST/"
           cp -r config "$DIST/"
           tar czf "${DIST}.tar.gz" "$DIST"
@@ -73,11 +83,11 @@ jobs:
           echo "asset_tarball=${DIST}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "asset_checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
 
-      - name: Update rolling draft release
+      - name: Create draft release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: latest
-          name: v${{ steps.package.outputs.version }}
+          tag_name: v${{ steps.package.outputs.version }}-${{ github.run_number }}
+          name: v${{ steps.package.outputs.version }} (build ${{ github.run_number }})
           draft: true
           generate_release_notes: true
           files: |
@@ -157,13 +167,17 @@ jobs:
           Copy-Item "$env:VCPKG_ROOT\installed\x64-windows\bin\*.dll" $dist/
           # vcpkg's tesseract port ships the OCR engine but not trained
           # language data — bundle the languages config.example.yaml's
-          # ocr.languages defaults to (jpn+eng) so the app works with zero
-          # manual setup. src/ocr.rs's bundled_tessdata_dir() looks for this
-          # exact "tessdata" folder next to the exe as a fallback when
-          # ocr.tessdata_dir isn't set in config.
+          # ocr.languages defaults to (jpn+eng+jpn_vert) so the app works
+          # with zero manual setup — jpn_vert is a separate trained model
+          # for vertical Japanese text (manga and similar), not just a psm
+          # setting, see config.example.yaml. src/ocr.rs's
+          # bundled_tessdata_dir() looks for this exact "tessdata" folder
+          # next to the exe as a fallback when ocr.tessdata_dir isn't set
+          # in config.
           New-Item -ItemType Directory -Path "$dist/tessdata" | Out-Null
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata" -OutFile "$dist/tessdata/eng.traineddata"
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn.traineddata" -OutFile "$dist/tessdata/jpn.traineddata"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn_vert.traineddata" -OutFile "$dist/tessdata/jpn_vert.traineddata"
           Copy-Item README.md,LICENSE $dist/
           Copy-Item -Recurse config "$dist/config"
           Compress-Archive -Path $dist -DestinationPath "$dist.zip"
@@ -173,11 +187,11 @@ jobs:
           echo "asset_zip=$dist.zip" >> $env:GITHUB_OUTPUT
           echo "asset_checksum=$dist.zip.sha256" >> $env:GITHUB_OUTPUT
 
-      - name: Attach to rolling draft release
+      - name: Attach to draft release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: latest
-          name: v${{ steps.package.outputs.version }}
+          tag_name: v${{ steps.package.outputs.version }}-${{ github.run_number }}
+          name: v${{ steps.package.outputs.version }} (build ${{ github.run_number }})
           draft: true
           files: |
             ${{ steps.package.outputs.asset_zip }}
