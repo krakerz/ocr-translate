@@ -19,13 +19,10 @@ use super::windows_backend;
 /// reason: a poll-driven OCR loop only ever wants the newest frame, not a
 /// queue of everything that arrived since the last poll).
 ///
-/// **Not yet confirmed working on real hardware** — there's a known upstream
-/// `xcap` issue about `video_recorder()` specifically failing in at least
-/// one Windows VM setup; this has only been verified to compile and link
-/// (via an isolated cross-compiled scratch crate, no Windows machine in this
-/// dev environment) and to correctly produce a `Send` type that can move
-/// into another thread, not to actually deliver frames on real/virtual
-/// Windows hardware. See TODO.md before trusting this blindly.
+/// Confirmed delivering real frames on a Windows 11 VM (the known upstream
+/// `xcap` issue about `video_recorder()` failing under a VM did not
+/// reproduce), but never run on physical hardware, and region-selection
+/// pixel alignment hasn't been stress-tested. See NOTES.md.
 pub struct RegionSession {
     recorder: xcap::VideoRecorder,
     latest_frame: Arc<Mutex<Option<RgbaImage>>>,

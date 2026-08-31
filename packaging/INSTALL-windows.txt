@@ -1,0 +1,30 @@
+ocr-translate — quick start (Windows)
+
+1. WHERE THE FILES GO
+   Extract this folder anywhere you like, e.g. C:\Program Files\ocr-translate.
+   Keep every file in it together: the .dll files beside ocr-translate.exe are
+   Tesseract's runtime libraries and the app will not start without them, and
+   the "tessdata" folder is where it looks for OCR language data.
+
+2. THE CONFIG FILE
+   Not required to start — a commented default is generated on first run at:
+     %APPDATA%\ocr-translation\config.yaml
+   config.example.yaml in this folder is that same file. To use it, copy it
+   to the path above under the name config.yaml.
+
+3. MINIMUM EDITS BEFORE FIRST LAUNCH
+   - general.target_lang  the language you want translations in (default: en)
+   - ocr.languages        the language(s) you are OCRing (default:
+                          jpn+eng+jpn_vert, which this archive bundles data for)
+   - active_provider      defaults to lmstudio on http://localhost:1234/v1.
+                          If you are not running LM Studio there, switch it to
+                          another provider — google needs no API key at all.
+
+4. RUNNING IT
+   Double-click ocr-translate.exe for the tray app (Capture / Live translate /
+   History / Quit). It has no console window — its log is written to
+     %APPDATA%\ocr-translation\ocr-translate.log
+   For a one-shot capture you can bind to a hotkey, make a shortcut to:
+     ocr-translate.exe capture
+
+Full documentation: https://github.com/krakerz/ocr-translate

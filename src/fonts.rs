@@ -97,7 +97,7 @@ fn find_cjk_font_path() -> Option<PathBuf> {
 /// Windows), in rough order of how likely each is to actually be present.
 /// Same "silent no-op if none found" philosophy as Linux: better to render
 /// boxes than fail the whole window. Not yet verified on a real Windows
-/// machine — see TODO.md.
+/// machine — see NOTES.md.
 #[cfg(target_os = "windows")]
 fn find_cjk_font_path() -> Option<PathBuf> {
     let fonts_dir = std::env::var_os("SystemRoot")

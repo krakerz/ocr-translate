@@ -10,7 +10,7 @@ use super::MonitorRect;
 /// for why this is scoped to Windows only and why the `wgc` feature is
 /// deliberately left disabled).
 ///
-/// Not yet verified against a real Windows machine/CI — see TODO.md.
+/// Confirmed working on a Windows 11 VM, never on physical hardware — see NOTES.md.
 pub fn grab_active_monitor() -> Result<DynamicImage> {
     let monitor = active_monitor()?;
     let image = monitor.capture_image().context("xcap screenshot failed")?;

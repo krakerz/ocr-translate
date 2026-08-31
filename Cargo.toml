@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "1.10.2"
+version = "1.10.3"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland) and Windows"
 license = "MIT"
@@ -55,7 +55,7 @@ ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
 # A second, newer ashpd version, aliased (not replacing the 0.9 above),
 # used *only* by capture/portal.rs's Screenshot request to set the
 # `target: Screen` option (a portal interface v3+ feature 0.9.3 doesn't
-# expose) — see capture/portal.rs and CLAUDE.md for why this matters (KDE's
+# expose) — see capture/portal.rs and NOTES.md for why this matters (KDE's
 # portal backend can default a non-interactive Screenshot request to
 # "current/active screen" — the screen of the focused *window*, not the
 # monitor under the cursor — rather than the full virtual desktop our
@@ -69,7 +69,7 @@ ashpd_screenshot = { package = "ashpd", version = "0.13", default-features = fal
 # randr: used to query monitor geometry directly (see src/capture/monitor.rs)
 # instead of depending on xcap, which hangs indefinitely on at least this
 # project's KDE/KWin setup as of 0.9+ (every geometry accessor calls an
-# internal Wayland scale-factor lookup that never returns). See CLAUDE.md.
+# internal Wayland scale-factor lookup that never returns). See NOTES.md.
 # Confirmed still true as of xcap 0.9.8 (2026): its Linux backend still
 # depends on a `libwayshot-xcap` fork for the Wayland path — the same
 # wayshot-based code the original hang was traced to — so this isn't a
@@ -78,7 +78,7 @@ x11rb = { version = "0.13", features = ["randr"] }
 # 0.8.x fails to build against this system's PipeWire (1.6.8) headers
 # (libspa-sys 0.8.0's bindgen output has an opaque spa_pod_builder struct
 # incompatible with them); 0.10.1 builds cleanly. See src/capture/screencast.rs
-# and CLAUDE.md before bumping — verify a real build, not just `cargo check`.
+# and NOTES.md before bumping — verify a real build, not just `cargo check`.
 pipewire = "0.10"
 
 # Windows-only capture backend — see src/capture/windows_backend.rs. `xcap`
@@ -91,7 +91,7 @@ pipewire = "0.10"
 # xcap itself depends on) is used directly only for `GetCursorPos` — xcap has
 # no cursor-position API of its own, it's a screen-capture library, not an
 # input-query one. Not yet verified on real Windows hardware/CI — see
-# TODO.md before trusting this blindly. `Win32_System_Threading` is also
+# NOTES.md before trusting this blindly. `Win32_System_Threading` is also
 # used, separately, by src/session_lock.rs's "stop the other session for
 # me" feature (OpenProcess/TerminateProcess) — see its module doc comment.
 [target.'cfg(target_os = "windows")'.dependencies]

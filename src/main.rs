@@ -35,6 +35,9 @@ use config::AppConfig;
 #[derive(Parser)]
 #[command(
     name = "ocr-translate",
+    // Pinned rather than taken from argv[0]: inside an AppImage the process is
+    // launched as "AppRun", which is not a name the user can ever type.
+    bin_name = "ocr-translate",
     version,
     about = "Screen OCR + LLM/translation-API popup tool"
 )]
