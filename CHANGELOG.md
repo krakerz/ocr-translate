@@ -8,6 +8,28 @@ Each entry is a `## [version] - date` header (used by
 `.github/workflows/autobuild.yml` to pull the matching section into that
 version's GitHub Release notes — keep that format so it stays parseable).
 
+## [1.10.2] - 2026-08-31
+
+### Fixed
+
+- Built-in (portal-based) Linux capture could grab the wrong monitor —
+  reported as: capturing while Microsoft Teams was the focused app grabbed
+  Teams' screen instead of the one the mouse cursor was actually on. Root
+  cause: a non-interactive xdg-desktop-portal `Screenshot` request isn't
+  guaranteed to return the full virtual desktop — KDE's portal backend can
+  scope it to just the focused window's screen instead, which broke this
+  project's "always crop the full desktop down to the monitor under the
+  cursor" assumption. Now explicitly requests the `target: Screen` option
+  when the installed portal backend advertises support for it (checked via
+  `AvailableTargets`, since a backend that doesn't support the option
+  rejects the whole request rather than ignoring it). Falls back to the
+  prior behavior on older backends. Verified safe and non-regressing via
+  real testing, but not reproducible in the dev environment used to fix it
+  (that system's portal already returned the full desktop) — if you still
+  see this, `RUST_LOG=debug` now logs the portal image size, the resolved
+  monitor rect, and whether `Screen` target support was detected, to help
+  pin down what's actually happening on your system.
+
 ## [1.10.1] - 2026-08-29
 
 ### Fixed
