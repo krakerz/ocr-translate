@@ -1,6 +1,6 @@
 [package]
 name = "ocr-translate"
-version = "1.10.1"
+version = "1.10.2"
 edition = "2021"
 description = "Screen OCR + LLM/translation-API popup tool for Linux (Wayland) and Windows"
 license = "MIT"
@@ -52,6 +52,20 @@ fd-lock = "4"
 gtk = "0.18"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
+# A second, newer ashpd version, aliased (not replacing the 0.9 above),
+# used *only* by capture/portal.rs's Screenshot request to set the
+# `target: Screen` option (a portal interface v3+ feature 0.9.3 doesn't
+# expose) — see capture/portal.rs and CLAUDE.md for why this matters (KDE's
+# portal backend can default a non-interactive Screenshot request to
+# "current/active screen" — the screen of the focused *window*, not the
+# monitor under the cursor — rather than the full virtual desktop our
+# cropping logic assumes it always gets). Deliberately kept as a separate
+# aliased dependency instead of bumping the shared `ashpd` outright: 0.9 to
+# 0.13 changed the ScreenCast portal's API surface substantially
+# (positional arguments -> dedicated `*Options` structs per call), and
+# capture/screencast.rs's PipeWire negotiation is delicate, already-proven
+# working code not worth risking for a fix that only concerns Screenshot.
+ashpd_screenshot = { package = "ashpd", version = "0.13", default-features = false, features = ["tokio", "screenshot"] }
 # randr: used to query monitor geometry directly (see src/capture/monitor.rs)
 # instead of depending on xcap, which hangs indefinitely on at least this
 # project's KDE/KWin setup as of 0.9+ (every geometry accessor calls an
