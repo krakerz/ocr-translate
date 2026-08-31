@@ -15,7 +15,7 @@ name: Autobuild
 # was stacking onto one "latest" release before this).
 #
 # Windows is packaged and attached here too, but newer and less proven than
-# Linux — see CLAUDE.md/TODO.md. `release-windows` runs after `release-linux`
+# Linux. `release-windows` runs after `release-linux`
 # (not in parallel) so the two don't race updating the same release, and
 # only `release-linux` sets the release body — running that twice risks
 # duplicate/conflicting notes.
@@ -24,9 +24,10 @@ name: Autobuild
 # commit/PR notes: `release-linux` extracts the section whose header is
 # `## [<Cargo.toml version>]` (see CHANGELOG.md's own top-of-file note on
 # keeping that header format parseable) and passes it as `body_path`. A
-# version with no matching CHANGELOG.md entry still gets a release, just
-# with a placeholder body noting the entry is missing — never a hard
-# failure, so forgetting to update CHANGELOG.md doesn't block a release.
+# version with no matching CHANGELOG.md entry still gets a release, with
+# notes built from the commit subjects since the previous tag instead —
+# never a hard failure, so forgetting to update CHANGELOG.md doesn't block
+# a release.
 
 on:
   push:
@@ -42,6 +43,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history: the release-notes fallback below reads commit
+          # subjects since the previous tag, which a shallow clone can't see.
+          fetch-depth: 0
 
       - name: Install system dependencies
         run: |
@@ -84,12 +89,60 @@ jobs:
           curl -sSL -o "$DIST/tessdata/jpn.traineddata" https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn.traineddata
           curl -sSL -o "$DIST/tessdata/jpn_vert.traineddata" https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn_vert.traineddata
           cp README.md LICENSE "$DIST/"
-          cp -r config "$DIST/"
+          # Both example configs sit next to the binary, not in a subfolder —
+          # INSTALL.txt tells the user to copy one of these to the config dir.
+          cp config/config.example.yaml config/config.example.conf "$DIST/"
+          cp packaging/INSTALL-linux.txt "$DIST/INSTALL.txt"
           tar czf "${DIST}.tar.gz" "$DIST"
           sha256sum "${DIST}.tar.gz" > "${DIST}.tar.gz.sha256"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Reused by the AppImage step, so the tessdata isn't downloaded twice.
+          echo "DIST_TESSDATA=${DIST}/tessdata" >> "$GITHUB_ENV"
           echo "asset_tarball=${DIST}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "asset_checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Build AppImage
+        id: appimage
+        env:
+          # ubuntu-latest has no libfuse2, so linuxdeploy (itself an AppImage)
+          # can't mount itself — extract-and-run is the supported workaround.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          VERSION="${{ steps.package.outputs.version }}"
+          # linuxdeploy's appimage plugin names its output from $OUTPUT, so the
+          # asset filename is deterministic — no globbing for whatever it wrote.
+          export OUTPUT="ocr-translate-${VERSION}-x86_64.AppImage"
+          curl -sSLo linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          # linuxdeploy bundles the shared libraries the binary actually links
+          # (Tesseract, Leptonica, GTK3, ...), which the plain tarball
+          # deliberately does not — the AppImage is the self-contained option,
+          # the tarball stays the "use your distro's packages" one. Libraries
+          # coupled to a host daemon (libpipewire, libX11, libwayland-client,
+          # glibc) are on linuxdeploy's own blacklist and correctly come from
+          # the host instead; bundling those would break against the running
+          # daemon.
+          mkdir -p AppDir/usr/bin
+          cp target/release/ocr-translate AppDir/usr/bin/
+          # The tray library is dlopen'd by libappindicator-sys (via libloading),
+          # not a DT_NEEDED entry, so linuxdeploy can't discover it on its own —
+          # without --library the AppImage builds fine and the tray then just
+          # silently never appears on a host that lacks the library.
+          APPINDICATOR=$(find /usr/lib -maxdepth 3 -name 'libayatana-appindicator3.so.1' | head -1)
+          test -n "$APPINDICATOR" || { echo "libayatana-appindicator3.so.1 not found"; exit 1; }
+          # bundled_tessdata_dir() resolves from current_exe(), which inside a
+          # running AppImage is <mountpoint>/usr/bin/ocr-translate — so the
+          # data has to sit beside the binary, not at the AppDir root.
+          cp -r "$DIST_TESSDATA" AppDir/usr/bin/tessdata
+          ./linuxdeploy \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/ocr-translate \
+            --library "$APPINDICATOR" \
+            --desktop-file packaging/ocr-translate.desktop \
+            --icon-file packaging/ocr-translate.png \
+            --output appimage
+          test -f "$OUTPUT" || { echo "linuxdeploy produced no $OUTPUT"; exit 1; }
+          echo "asset_appimage=${OUTPUT}" >> "$GITHUB_OUTPUT"
 
       - name: Extract this version's changelog entry
         id: changelog
@@ -103,8 +156,20 @@ jobs:
             }
             found { print }
           ' CHANGELOG.md > release_notes.md
+          # No matching section is never a hard failure — a release with rough
+          # notes beats a release that doesn't ship. Fall back to the commit
+          # subjects since the previous tag (needs fetch-depth: 0 above).
           if [ ! -s release_notes.md ]; then
-            echo "_No CHANGELOG.md entry found for v${VERSION}._" > release_notes.md
+            PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            {
+              echo "_No \`CHANGELOG.md\` section for ${VERSION} — these notes were generated from commit history._"
+              echo
+              if [ -n "$PREV_TAG" ]; then
+                git log --no-merges --pretty='- %s' "${PREV_TAG}..HEAD"
+              else
+                git log --no-merges --pretty='- %s' -n 50
+              fi
+            } > release_notes.md
           fi
 
       - name: Create draft release
@@ -117,6 +182,7 @@ jobs:
           files: |
             ${{ steps.package.outputs.asset_tarball }}
             ${{ steps.package.outputs.asset_checksum }}
+            ${{ steps.appimage.outputs.asset_appimage }}
 
   release-windows:
     needs: release-linux
@@ -203,7 +269,10 @@ jobs:
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn.traineddata" -OutFile "$dist/tessdata/jpn.traineddata"
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn_vert.traineddata" -OutFile "$dist/tessdata/jpn_vert.traineddata"
           Copy-Item README.md,LICENSE $dist/
-          Copy-Item -Recurse config "$dist/config"
+          # Both example configs sit next to the exe, not in a subfolder —
+          # INSTALL.txt tells the user to copy one of these to the config dir.
+          Copy-Item config/config.example.yaml,config/config.example.conf $dist/
+          Copy-Item packaging/INSTALL-windows.txt "$dist/INSTALL.txt"
           Compress-Archive -Path $dist -DestinationPath "$dist.zip"
           $hash = (Get-FileHash "$dist.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $dist.zip" | Set-Content -NoNewline "$dist.zip.sha256"

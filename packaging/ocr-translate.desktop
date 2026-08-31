@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ocr-translate
+GenericName=Screen OCR Translator
+Comment=Capture a screen region, OCR it, and translate the text
+Exec=ocr-translate
+Icon=ocr-translate
+Terminal=false
+Categories=Utility;Translation;
+Keywords=OCR;translate;screenshot;capture;

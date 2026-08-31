@@ -83,11 +83,7 @@ async fn grab_fullscreen_async() -> Result<DynamicImage> {
 /// XWayland presents to the compositor — the same space the portal
 /// screenshot is captured in.
 fn crop_to_active_monitor(full: DynamicImage) -> DynamicImage {
-    tracing::debug!(
-        "portal screenshot is {}x{}",
-        full.width(),
-        full.height()
-    );
+    tracing::debug!("portal screenshot is {}x{}", full.width(), full.height());
 
     let Some((px, py)) = pointer::global_position() else {
         tracing::debug!("could not determine cursor position; using the full portal screenshot");

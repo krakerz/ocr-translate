@@ -8,7 +8,7 @@ use super::MonitorRect;
 /// query over XWayland — not via `xcap`, which on Linux has every geometry
 /// accessor (and `Monitor::from_point()`) unconditionally call an internal
 /// Wayland scale-factor lookup that hangs indefinitely on at least this
-/// project's KDE/KWin setup (see `Cargo.toml`/CLAUDE.md). This queries the
+/// project's KDE/KWin setup (see `Cargo.toml`/NOTES.md). This queries the
 /// exact same protocol request xcap itself used internally, just without
 /// the surrounding logic that hangs.
 pub fn monitor_at(x: i32, y: i32) -> Option<MonitorRect> {

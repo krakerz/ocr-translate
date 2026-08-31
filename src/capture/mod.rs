@@ -42,7 +42,7 @@ pub struct RegionSession;
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 impl RegionSession {
     pub fn start() -> Result<Self> {
-        anyhow::bail!("Live Region Translate isn't implemented on this OS yet — see TODO.md")
+        anyhow::bail!("Live Region Translate isn't implemented on this OS yet")
     }
 
     pub fn latest_frame(&self) -> Option<image::RgbaImage> {

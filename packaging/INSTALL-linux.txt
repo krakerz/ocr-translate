@@ -1,0 +1,34 @@
+ocr-translate — quick start (Linux)
+
+1. WHERE THE FILES GO
+   Extract this folder anywhere you like, e.g. ~/.local/share/ocr-translate.
+   Keep the "tessdata" folder next to the "ocr-translate" binary — that is
+   where the app looks for OCR language data.
+   Optionally put the binary on your PATH:
+     ln -s ~/.local/share/ocr-translate/ocr-translate ~/.local/bin/ocr-translate
+
+2. SYSTEM PACKAGES YOU STILL NEED
+   Tesseract and Leptonica must come from your distro's package manager
+   (Arch: tesseract leptonica — Debian/Ubuntu: libtesseract5 libleptonica-dev).
+   Everything else is bundled here. Linux support is Wayland only.
+
+3. THE CONFIG FILE
+   Not required to start — a commented default is generated on first run at:
+     ~/.config/ocr-translation/config.yaml
+   config.example.yaml in this folder is that same file. To use it, copy it
+   to the path above under the name config.yaml.
+
+4. MINIMUM EDITS BEFORE FIRST LAUNCH
+   - general.target_lang  the language you want translations in (default: en)
+   - ocr.languages        the language(s) you are OCRing (default:
+                          jpn+eng+jpn_vert, which this archive bundles data for)
+   - active_provider      defaults to lmstudio on http://localhost:1234/v1.
+                          If you are not running LM Studio there, switch it to
+                          another provider — google needs no API key at all.
+
+5. RUNNING IT
+   ocr-translate           tray app: Capture / Live translate / History / Quit
+   ocr-translate capture   one-shot capture — bind this to a hotkey in your
+                           desktop environment's own shortcut settings
+
+Full documentation: https://github.com/krakerz/ocr-translate

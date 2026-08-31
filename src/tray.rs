@@ -229,7 +229,7 @@ fn pump_platform_messages() {
     }
 }
 
-// macOS isn't a supported target yet (see CLAUDE.md) — `run_native_tray`
+// macOS isn't a supported target yet — `run_native_tray`
 // still needs to typecheck there since it's only gated on `not(linux)`, not
 // `windows` specifically, so this is a no-op rather than a missing symbol.
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]

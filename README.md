@@ -26,10 +26,26 @@ a popup. macOS isn't supported.
 The app runs in the system tray with a **Capture** / **Live Clipboard
 Translate** / **Live Region Translate** / **History** / **Quit** menu.
 
+## Features
+
+- Drag-select any region of the screen, OCR it, and get a translation in a popup — bindable to a hotkey through your desktop's own shortcut settings.
+- Runs from the system tray: **Capture**, **Live Clipboard Translate**, **Live Region Translate**, **History**, **Quit**.
+- **Live Clipboard Translate** — watches the clipboard and re-translates in place as you copy new text.
+- **Live Region Translate** — pin one or more screen regions and keep re-translating each as its text changes; regions can be added, previewed, renamed or deleted mid-session, from the window or a hotkey.
+- **Quick Capture** inside a Live Region session — a full one-shot capture, history included, without leaving the window.
+- Translation backends: any OpenAI-compatible chat API (LM Studio, Ollama, OpenAI, DeepSeek, ...), Google, Microsoft/Azure ("Bing") and DeepL — each with a free public mode or an authenticated API key, and an ordered fallback chain when one fails.
+- Vertical-text OCR (`jpn_vert` and friends) for manga and similar layouts.
+- Local translation history, browsable from the tray and reopenable in a popup.
+- Config hot-reload — edits take effect without restarting the tray.
+
 ## Installing
 
-**Prebuilt release** (recommended if you don't want to build it yourself):
-download the archive for your OS from the [Releases page](../../releases),
+**AppImage** (Linux, simplest): download `ocr-translate-<version>-x86_64.AppImage`
+from the [Releases page](../../releases), `chmod +x` it, and run it. Tesseract,
+Leptonica, GTK and the OCR language data are all inside — nothing to install.
+
+**Prebuilt archive** (Linux or Windows): download the archive for your OS from
+the [Releases page](../../releases),
 extract it, and run `ocr-translate` (`ocr-translate.exe` on Windows). Nothing
 else to install — Tesseract's runtime DLLs (Windows) and English + Japanese
 (including vertical Japanese, e.g. manga) OCR data (matching the default
@@ -39,12 +55,10 @@ file into the `tessdata` folder next to the binary (or set
 `ocr.tessdata_dir`/`TESSDATA_PREFIX`) — see step 6 below for where to get one.
 Linux still needs Tesseract + Leptonica installed via your distro's package
 manager (see [Requirements](#requirements) below) — that part isn't bundled.
+The archive also carries an `INSTALL.txt` quick start and both example config
+files, so you don't need to come back here to get going.
 
-**From source**: see [Requirements](#requirements) below, then:
-
-```sh
-cargo build --release
-```
+**From source**: see [Building from source](#building-from-source) below.
 
 ## Requirements
 
@@ -124,6 +138,20 @@ above if you just want to run the app.
    Packaged release archives already bundle English, Japanese, and vertical
    Japanese (`eng`, `jpn`, `jpn_vert`) — the default config's
    `jpn+eng+jpn_vert`.
+
+## Building from source
+
+Install the prerequisites for your platform from [Requirements](#requirements) above, then, from a clean clone:
+
+```sh
+git clone https://github.com/krakerz/ocr-translate
+cd ocr-translate
+cargo build --release
+```
+
+The binary lands at `target/release/ocr-translate` (`target\release\ocr-translate.exe` on Windows). On Windows, also copy the Tesseract/Leptonica DLLs from `%VCPKG_ROOT%\installed\x64-windows\bin\` next to the exe, or it won't start — see [Requirements → Windows](#windows).
+
+There's no test suite; `cargo test` only typechecks. Run `cargo fmt` before committing.
 
 ## Configuration
 
@@ -484,6 +512,18 @@ OpenGL implementation for Windows (e.g. the `pal1000/mesa-dist-win` project
 on GitHub) and copy its `opengl32.dll` and `libgallium_wgl.dll` into the
 same folder as `ocr-translate.exe`.
 
+## Limitations
+
+- **Wayland only on Linux.** X11 sessions aren't supported, and neither is macOS.
+- **No built-in global hotkey.** Wayland's `GlobalShortcuts` portal only grants shortcuts to sandboxed (Flatpak/Snap) apps in practice, so binding `ocr-translate capture` in your desktop environment's own shortcut settings is the supported way — not a fallback.
+- **Windows has never run on physical hardware.** Everything is confirmed working end-to-end on a Windows 11 VM; region-selection pixel alignment in particular hasn't been stress-tested on real hardware.
+- **DeepL's public (keyless) mode is unproven.** Google's and Bing's are confirmed working live; for DeepL, use `mode: private` with a real API key until someone confirms otherwise.
+- **Public modes are unofficial endpoints.** They're rate-limited by the providers' own abuse prevention and can break without notice. The authenticated modes are the dependable ones.
+- **OCR accuracy is Tesseract's.** Small, anti-aliased or low-contrast UI text may need a `psm` tweak; vertical text needs a `_vert` language, which isn't auto-detected.
+- Only one of Live Region Translate and Live Clipboard Translate can run at a time (a one-shot capture may run alongside Live Clipboard Translate).
+
 ---
 
-This project was built with the help of AI (Claude Code).
+### Notes
+
+Built and maintained with the help of AI.
