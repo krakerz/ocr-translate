@@ -2,9 +2,16 @@
 
 All notable changes to this project are documented here, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Tracking starts at 1.10.0 — earlier versions weren't recorded here.
 
-Each entry is a `## [version] - date` header, used by `.github/workflows/autobuild.yml` to pull the matching section into that version's GitHub Release notes — keep that format so it stays parseable. Prose is wrapped in `<div align="justify">` and never hard-wrapped, since GitHub turns a source line break into a `<br>` in the published release body.
+Each entry is a `## [version] - date` header, used by `.github/workflows/autobuild.yml` to pull the matching section into that version's GitHub Release notes — keep that format so it stays parseable. Bullets only, one line each (never hard-wrapped — GitHub turns a wrapped source line into a stray `<br>`), roughly a sentence, the user-visible fact and nothing else.
 
 ## [Unreleased]
+
+## [1.11.0] - 2026-09-04
+
+### Added
+
+- Tray "Settings..." window (also `ocr-translate configure`) to edit config without touching the file directly: providers, general/OCR/capture/prompt settings, window sizes, history, and Live Clipboard/Region Translate options
+- Settings always saves as `config.yaml`, even on a `config.conf` install
 
 ## [1.10.3] - 2026-08-31
 

@@ -11,12 +11,13 @@ use crate::history::HistoryEntry;
 const CAPTURE_ID: &str = "capture";
 const WATCH_CLIPBOARD_ID: &str = "watch-clipboard";
 const WATCH_REGION_ID: &str = "watch-region";
+const CONFIGURE_ID: &str = "configure";
 const QUIT_ID: &str = "quit";
 const CLEAR_HISTORY_ID: &str = "history:clear";
 const HISTORY_ID_PREFIX: &str = "history:";
 
 /// Builds the tray icon with a "Capture" / "Live Clipboard Translate" /
-/// "Live Region Translate" / "History" / "Quit" menu and starts forwarding
+/// "Live Region Translate" / "History" / "Settings..." / "Quit" menu and starts forwarding
 /// clicks into `tx`. On Linux
 /// this needs a live GTK main
 /// loop, so tray setup, menu refresh, and the loop all run on one dedicated
@@ -53,6 +54,8 @@ pub fn spawn(tx: Sender<DaemonEvent>, cfg: Arc<RwLock<AppConfig>>) {
                 let _ = tx.send(DaemonEvent::WatchClipboard);
             } else if id == WATCH_REGION_ID {
                 let _ = tx.send(DaemonEvent::WatchRegion);
+            } else if id == CONFIGURE_ID {
+                let _ = tx.send(DaemonEvent::Configure);
             } else if id == QUIT_ID {
                 let _ = tx.send(DaemonEvent::Quit);
             } else if id == CLEAR_HISTORY_ID {
@@ -101,6 +104,8 @@ fn build_menu(history: &[HistoryEntry]) -> anyhow::Result<Menu> {
     }
     menu.append(&history_menu)?;
 
+    menu.append(&PredefinedMenuItem::separator())?;
+    menu.append(&MenuItem::with_id(CONFIGURE_ID, "Settings...", true, None))?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&MenuItem::with_id(QUIT_ID, "Quit", true, None))?;
     Ok(menu)

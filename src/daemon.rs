@@ -14,16 +14,18 @@ pub enum DaemonEvent {
     ClearHistory,
     WatchClipboard,
     WatchRegion,
+    Configure,
     Quit,
 }
 
 /// Runs the tray daemon until "Quit" is chosen from the tray menu.
 ///
-/// Each capture (and each "show this history entry" click) is run in a
-/// freshly spawned child process rather than in-process: the tray keeps a
-/// live GTK main loop running on its own thread, and opening an eframe/winit
-/// window from another thread in that same process can silently hang (GTK
-/// and winit both talking to the Wayland connection at once). A separate
+/// Each capture (and each "show this history entry" click, and opening
+/// Settings) is run in a freshly spawned child process rather than
+/// in-process: the tray keeps a live GTK main loop running on its own
+/// thread, and opening an eframe/winit window from another thread in that
+/// same process can silently hang (GTK and winit both talking to the
+/// Wayland connection at once). A separate
 /// process has no GTK state at all, matching the already-working standalone
 /// `capture` command. Since each of those child processes reloads config
 /// from disk itself, they're already "hot-reloaded" for free — see
@@ -101,6 +103,11 @@ pub fn run(cfg: AppConfig, config_path: Option<PathBuf>) -> Result<()> {
             DaemonEvent::WatchRegion => {
                 if let Err(e) = spawn_subcommand(config_path.as_deref(), "watch-region", None) {
                     tracing::error!("failed to launch region watcher: {e:#}");
+                }
+            }
+            DaemonEvent::Configure => {
+                if let Err(e) = spawn_subcommand(config_path.as_deref(), "configure", None) {
+                    tracing::error!("failed to launch settings window: {e:#}");
                 }
             }
             DaemonEvent::Quit => {
