@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Folder name used under the OS's standard per-user config location:
 /// `~/.config/ocr-translation` on Linux, `%APPDATA%\ocr-translation` on
@@ -12,7 +12,7 @@ const APP_DIR_NAME: &str = "ocr-translation";
 const EXAMPLE_YAML: &str = include_str!("../config/config.example.yaml");
 const EXAMPLE_CONF: &str = include_str!("../config/config.example.conf");
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub general: GeneralConfig,
@@ -80,7 +80,7 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GeneralConfig {
     pub target_lang: String,
@@ -98,7 +98,7 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OcrConfig {
     /// Tesseract language codes, e.g. "eng", "eng+jpn"
@@ -121,7 +121,7 @@ impl Default for OcrConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureBackend {
     /// Grab the active monitor ourselves and crop it with our own
     /// zoom/pan/select window (`capture::grab_active_monitor` + `select_crop`).
@@ -138,7 +138,7 @@ pub enum CaptureBackend {
     External,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CaptureConfig {
     pub backend: CaptureBackend,
@@ -160,7 +160,7 @@ impl Default for CaptureConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CaptureWindowConfig {
     /// The box the captured screenshot is initially scaled to fit within
@@ -182,7 +182,7 @@ impl Default for CaptureWindowConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PopupConfig {
     pub width: f32,
@@ -208,7 +208,7 @@ impl Default for PopupConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HistoryConfig {
     /// Record each successful translation to `history.jsonl` in the config directory.
@@ -229,7 +229,7 @@ impl Default for HistoryConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LiveTranslateConfig {
     /// Initial state of the popup's "Show source" toggle; the user can
@@ -248,7 +248,7 @@ impl Default for LiveTranslateConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RegionTranslateConfig {
     /// Initial state of the popup's "Show source" toggle; the user can
@@ -279,7 +279,7 @@ impl Default for RegionTranslateConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PromptConfig {
     pub system: String,
@@ -296,7 +296,7 @@ impl Default for PromptConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderKind {
     /// Any server exposing an OpenAI-style `/chat/completions` endpoint:
     /// LM Studio, Ollama (OpenAI-compat mode), OpenAI, DeepSeek, etc.
@@ -310,7 +310,7 @@ pub enum ProviderKind {
     DeepLTranslate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderMode {
     /// The free, unofficial, no-key web endpoint the provider's own
     /// translator page uses (only meaningful for `google_translate` /
@@ -325,7 +325,7 @@ pub enum ProviderMode {
     Private,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
@@ -455,6 +455,42 @@ pub fn reset_default_config(format: &str, force: bool) -> Result<()> {
     std::fs::write(dir.join("config.example.conf"), EXAMPLE_CONF)?;
     println!("wrote {}", path.display());
     Ok(())
+}
+
+/// The path the Settings window (`settings.rs`) should write to: the
+/// currently resolved config file if it's YAML, otherwise (a `.conf` file, or
+/// no config file resolved at all — e.g. a fresh install where `load` hasn't
+/// run yet) `config.yaml` in the default per-user directory. Rewriting the
+/// full nested config back into hand-maintained INI isn't practical the way
+/// round-tripping YAML is, so Settings always saves as YAML — an existing
+/// `.conf` file is left untouched (not deleted), but saving from Settings
+/// switches that install over to `config.yaml` from then on, since
+/// `resolve_path` prefers it over `config.conf` whenever both exist.
+pub fn save_target_path(explicit_path: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = resolve_path(explicit_path) {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        if ext == "yaml" || ext == "yml" {
+            return Ok(path);
+        }
+    }
+    let dir =
+        app_config_dir().context("could not determine a config directory for this platform")?;
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create config directory {}", dir.display()))?;
+    Ok(dir.join("config.yaml"))
+}
+
+/// Writes `cfg` to `path` as YAML. The already-running daemon's
+/// `watch_config` (see `daemon.rs`) polls this file's mtime and hot-reloads
+/// on change, so nothing else needs to be told about a save explicitly.
+pub fn save(cfg: &AppConfig, path: &Path) -> Result<()> {
+    let yaml = serde_yaml::to_string(cfg).context("failed to serialize config to YAML")?;
+    std::fs::write(path, yaml)
+        .with_context(|| format!("failed to write config to {}", path.display()))
 }
 
 fn load_file(path: &Path) -> Result<AppConfig> {

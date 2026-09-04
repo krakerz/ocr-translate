@@ -22,6 +22,7 @@ mod ocr;
 mod popup;
 mod region_ipc;
 mod session_lock;
+mod settings;
 mod translate;
 mod tray;
 
@@ -99,6 +100,13 @@ enum Command {
     /// Rename a region in an already-running Live Region Translate session.
     /// Errors if it isn't currently running.
     RegionRename { id: usize, name: String },
+    /// Open the Settings window: an editable form over the config (providers,
+    /// languages, window sizes, ...) so you don't have to hand-edit
+    /// config.yaml/config.conf. Saving always writes YAML (see
+    /// `config::save_target_path`); the running tray/daemon picks up the
+    /// change automatically within a couple of seconds, same as any other
+    /// config file edit.
+    Configure,
     /// Reset the config file(s) in the default config directory to the
     /// bundled example. Config is created automatically on first run, so
     /// this is only needed to restore defaults.
@@ -184,6 +192,7 @@ fn main() -> Result<()> {
         Command::RegionRename { id, name } => {
             send_region_command(region_ipc::RegionCommand::Rename { id, name })
         }
+        Command::Configure => settings::run(&cfg, cli.config.as_deref()),
         Command::ClearHistory | Command::InitConfig { .. } => unreachable!("handled above"),
     }
 }
