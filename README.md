@@ -208,12 +208,11 @@ fallback_providers:
 Google Translate, Bing/Azure Translator, and DeepL Translator each support two `mode`s:
 
 - `mode: public` — a free, unofficial, no-key endpoint the provider's own
-  translator web page uses. Undocumented, and can change or rate-limit
-  without notice.
+  translator page uses. Undocumented; can change or rate-limit anytime.
 - `mode: private` — the official, authenticated API (Cloud Translation v2 for
-  Google, Azure Translator v3 for Bing, the DeepL API — Free or Pro tier,
-  detected from whether the key ends in `:fx`). Needs `api_key`/`api_key_env`
-  (and `region` for Bing, if using a multi-service Azure resource).
+  Google, Azure Translator v3 for Bing, DeepL's own API — tier auto-detected
+  from whether the key ends in `:fx`). Needs `api_key`/`api_key_env` (+
+  `region` for a multi-service Azure resource).
 
 Public mode never sends `prompt.system`/`prompt.template` — these are real
 translation APIs, not LLMs.
