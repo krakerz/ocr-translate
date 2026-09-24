@@ -12,28 +12,21 @@ general:
   log_level: info
 
 ocr:
-  # Tesseract language code(s), e.g. "eng", "eng+jpn", "chi_sim". Must be installed
-  # as tessdata (see `tesseract --list-langs`). For vertical text (e.g. manga,
-  # which is usually vertical Japanese) use the "_vert" variant instead of the
-  # regular one — "jpn_vert" rather than "jpn" (also available: "chi_sim_vert",
-  # "chi_tra_vert", "kor_vert") — a different trained model, not just a PSM
-  # setting below. jpn_vert is included below by default (packaged releases
-  # bundle its .traineddata alongside jpn/eng); if you're building from
-  # source or on Linux relying on a distro tessdata package, you may need to
-  # download it yourself (e.g. from tesseract-ocr/tessdata_fast on GitHub)
-  # and point tessdata_dir at it. Combining languages like this doesn't
-  # auto-detect vertical vs. horizontal text for you — it just makes both
-  # vocabularies available — you'll likely still want psm: 5 (below) when
-  # OCRing an actually-vertical region for the best results.
+  # Tesseract language code(s), e.g. "eng", "eng+jpn", "chi_sim" (must be
+  # installed as tessdata, see `tesseract --list-langs`). For vertical text
+  # (manga, etc.) use the "_vert" variant, e.g. "jpn_vert" (also available:
+  # "chi_sim_vert", "chi_tra_vert", "kor_vert") — a different trained model,
+  # not just a PSM setting; pair with psm: 5 below. Packaged releases bundle
+  # jpn_vert; building from source may need it downloaded separately
+  # (tesseract-ocr/tessdata_fast on GitHub) into tessdata_dir. Combining
+  # languages doesn't auto-detect vertical vs. horizontal text for you.
   languages: jpn+eng+jpn_vert
   # Optional override for TESSDATA_PREFIX if your distro puts tessdata somewhere unusual.
   tessdata_dir: null
-  # Tesseract page segmentation mode — how it expects the text to be laid out:
-  #   6 = assume a single uniform block of text (default here — good for most
-  #       cropped UI text, horizontal).
-  #   5 = assume a single uniform block of *vertically aligned* text — pair
-  #       this with a "_vert" language above for vertical text (manga, etc.).
-  #   7 = treat the image as a single text line (a single subtitle line, etc.)
+  # Tesseract page segmentation mode (how it expects text to be laid out):
+  #   6 = single uniform block, horizontal (default; good for cropped UI text)
+  #   5 = single uniform block, vertical — pair with a "_vert" language above
+  #   7 = single text line (e.g. one subtitle line)
   # See `tesseract --help-psm` for the full list.
   psm: 6
   # Grayscale + contrast-stretch the crop before OCR. Usually improves accuracy
@@ -41,13 +34,12 @@ ocr:
   preprocess: true
 
 capture:
-  # built_in: grab the active monitor ourselves and crop it with our own
-  #           zoom/pan/select window. Portable across every Wayland desktop.
-  # external: run `external_command` and let IT do the region selection (a
-  #           real live overlay on your actual desktop), then read the image
-  #           it leaves on the clipboard. Nicer where available, but depends
-  #           on a specific tool being installed, so it isn't the default —
-  #           we don't know which desktop environment you're running.
+  # built_in: grab the active monitor and crop it with our own zoom/pan/select
+  #           window — portable across every Wayland desktop.
+  # external: run `external_command`, which does its own live region selection
+  #           on the real desktop, then read the image off the clipboard —
+  #           nicer where available, but not the default since it needs a
+  #           specific tool installed.
   backend: built_in
   # Only used when backend: external. Must leave a PNG image on the clipboard
   # when it's done. Examples:
@@ -58,11 +50,10 @@ capture:
   # How long to keep polling the clipboard for an image after the command exits.
   external_timeout_secs: 10
 
-# The in-app crop-selector window — "drag a rectangle to select" — shown by
-# both `ocr-translate capture` (built_in backend) and `watch-region`'s
-# initial region pick. `width`/`height` are the box the screenshot is
-# initially scaled to fit within (aspect ratio preserved); scroll to zoom in
-# further from there. Doesn't need to match your monitor's resolution.
+# The in-app crop-selector window ("drag a rectangle to select"), used by
+# `capture` (built_in backend) and `watch-region`'s initial pick. `width`/
+# `height` set the box the screenshot is scaled to fit (scroll to zoom
+# further) — doesn't need to match your monitor's resolution.
 popup:
   width: 1600
   height: 1600
@@ -70,9 +61,8 @@ popup:
 
 # Shared by every window that shows a translation result: the one-shot
 # `capture` popup, Live Clipboard Translate, and Live Region Translate.
-# `auto_close_secs` only takes effect on the one-shot `capture` popup — the
-# Live Clipboard/Region windows ignore it, since they're meant to keep
-# running (and updating in place) until you close them yourself.
+# `auto_close_secs` only applies to the `capture` popup — the live windows
+# ignore it, since they're meant to keep running until you close them.
 translate:
   width: 520
   height: 380
@@ -83,9 +73,8 @@ translate:
   auto_close_secs: 0
 
 # Popup shown when reopening a history entry (tray History submenu /
-# `ocr-translate show-history`) — separate from `translate` above so you can
-# size it differently than the live capture-result popup, e.g. larger for
-# comfortably re-reading older entries.
+# `ocr-translate show-history`) — separate from `translate` above so it can
+# be sized differently, e.g. larger for comfortably re-reading old entries.
 history_popup:
   width: 520
   height: 380
@@ -121,11 +110,9 @@ region_translate:
   # the text changed. OCR is much more expensive than the clipboard's plain
   # text-change check, so this defaults slower than live_translate's.
   poll_interval_ms: 1000
-  # How long to wait after the ScreenCast portal negotiation succeeds before
-  # grabbing the frame used for region selection. The compositor's own
-  # "share screen with..." picker dialog can still be visible in the first
-  # frame or two otherwise. Raise this if your compositor is slower to
-  # dismiss the picker.
+  # How long to wait after ScreenCast negotiation succeeds before grabbing
+  # the region-selection frame — the compositor's "share screen" picker can
+  # still be visible in the first frame or two otherwise. Raise if needed.
   capture_delay_secs: 1
 
 prompt:
@@ -143,11 +130,9 @@ prompt:
 active_provider: lmstudio
 
 # If active_provider fails (server not running, bad key, network error, ...),
-# these are tried next, in order. The default below means: prefer your local
-# LM Studio, then fall back to Google's free public endpoint (no key needed)
-# — so the app still works even with nothing else configured. Bing and DeepL
-# below are also free/public by default and can be added here too, e.g.
-# `- bing` then `- deepl`, if you want more fallbacks before giving up.
+# these are tried next in order. Defaults to Google's free public endpoint,
+# so the app works with nothing else configured. Bing and DeepL are also
+# free/public by default and can be added here too, e.g. `- bing`, `- deepl`.
 fallback_providers:
   - google
 
@@ -184,12 +169,10 @@ providers:
     model: "deepseek-chat"
 
   # Google Translate.
-  #   mode: public  — the free, unofficial endpoint translate.google.com's own
-  #                   page uses. No API key, no billing, no prompt sent (it's
-  #                   a real translation API, not an LLM). Undocumented and
-  #                   could change or rate-limit without notice.
-  #   mode: private — the official Cloud Translation API v2. Needs api_key/
-  #                   api_key_env and a billing-enabled Google Cloud project.
+  #   mode: public  — free, unofficial endpoint (no key, no billing); real
+  #                   translation API, not an LLM. Undocumented, may change.
+  #   mode: private — official Cloud Translation API v2 (needs api_key/
+  #                   api_key_env, billing-enabled GCP project).
   google:
     kind: google_translate
     mode: public
@@ -198,11 +181,10 @@ providers:
     # api_key_env: GOOGLE_TRANSLATE_API_KEY
 
   # Microsoft/Azure "Bing" Translator.
-  #   mode: public  — the free, unofficial endpoint bing.com/translator's own
-  #                   page uses. No API key. Undocumented and could change or
-  #                   rate-limit without notice.
-  #   mode: private — the official Azure Translator v3 API. Needs api_key/
-  #                   api_key_env (+ region for multi-service resources).
+  #   mode: public  — free, unofficial endpoint (no key). Undocumented, may
+  #                   change or rate-limit without notice.
+  #   mode: private — official Azure Translator v3 API (needs api_key/
+  #                   api_key_env, + region for multi-service resources).
   bing:
     kind: bing_translate
     mode: public
@@ -212,13 +194,11 @@ providers:
     # region: null
 
   # DeepL Translator.
-  #   mode: public  — the free, unofficial endpoint deepl.com/translator's own
-  #                   page uses. No API key. Undocumented, more aggressively
-  #                   rate-limited than Google/Bing's free endpoints in
-  #                   testing — treat this as the least reliable of the three
-  #                   free options, and prefer mode: private if you have a key.
-  #   mode: private — the official DeepL API (Free or Pro tier — detected
-  #                   automatically from whether api_key ends in ":fx").
+  #   mode: public  — free, unofficial endpoint (no key). More aggressively
+  #                   rate-limited than Google/Bing's free tier — prefer
+  #                   mode: private if you have a key.
+  #   mode: private — official DeepL API (Free/Pro tier auto-detected from
+  #                   whether api_key ends in ":fx").
   deepl:
     kind: deepl_translate
     mode: public
