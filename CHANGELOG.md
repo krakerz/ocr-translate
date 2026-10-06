@@ -13,6 +13,10 @@ Each entry is a `## [version] - date` header, used by `.github/workflows/autobui
 - Tray "Settings..." window (also `ocr-translate configure`) to edit config without touching the file directly: providers, general/OCR/capture/prompt settings, window sizes, history, and Live Clipboard/Region Translate options
 - Settings always saves as `config.yaml`, even on a `config.conf` install
 
+### Fixed
+
+- On Hyprland, capture now grabs the monitor the mouse cursor is on instead of always the same monitor.
+
 ## [1.10.3] - 2026-08-31
 
 <div align="justify">
