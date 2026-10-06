@@ -1,8 +1,6 @@
 use anyhow::Result;
 
-use crate::config::{
-    AppConfig, CaptureBackend, ProviderConfig, ProviderKind, ProviderMode,
-};
+use crate::config::{AppConfig, CaptureBackend, ProviderConfig, ProviderKind, ProviderMode};
 
 /// Opens the Settings window (`ocr-translate configure`, tray "Settings..."):
 /// an editable form over every `AppConfig` field, so a user never has to
