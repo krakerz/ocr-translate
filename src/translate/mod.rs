@@ -98,7 +98,6 @@ fn build_for(
             timeout_secs: provider.timeout_secs,
         })),
         ProviderKind::DeepLTranslate => Ok(Box::new(deepl::DeepLTranslate {
-            name: name.to_string(),
             mode: provider.mode,
             api_key: provider.resolve_api_key(),
             timeout_secs: provider.timeout_secs,
