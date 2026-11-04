@@ -118,3 +118,9 @@ winresource = { version = "0.1.31", default-features = false }
 [profile.release]
 opt-level = 2
 strip = true
+
+[patch.crates-io]
+# leptonica-sys 0.4.9's bindgen doesn't pass -std=c11, so it fails to parse
+# leptonica's C11 <stdatomic.h> types (e.g. atomic_int) on stricter toolchains.
+# Patched locally to add `.clang_arg("-std=c11")`.
+leptonica-sys = { path = "patches/leptonica-sys" }
