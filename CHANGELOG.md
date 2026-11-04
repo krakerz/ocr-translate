@@ -4,7 +4,11 @@ All notable changes to this project are documented here, following the [Keep a C
 
 Each entry is a `## [version] - date` header, used by `.github/workflows/autobuild.yml` to pull the matching section into that version's GitHub Release notes — keep that format so it stays parseable. Bullets only, one line each (never hard-wrapped — GitHub turns a wrapped source line into a stray `<br>`), roughly a sentence, the user-visible fact and nothing else.
 
-## [Unreleased]
+## [1.12.0] - 2026-11-04
+
+### Fixed
+
+- DeepL Translator free mode now uses the current `oneshot-free.www.deepl.com/v1/translate` endpoint — the legacy `www2.deepl.com/jsonrpc` backend DeepL's web frontend retired now returns "You're using an older version of DeepL" / HTTP 429.
 
 ## [1.11.0] - 2026-09-04
 
