@@ -84,9 +84,12 @@ fn main() {
         bindings = bindings.clang_arg(format!("-I{}", include_path));
     }
 
-    // leptonica's environ.h uses C11 <stdatomic.h> types (e.g. atomic_int);
-    // force C11 so bindgen/libclang recognizes them on stricter toolchains.
-    bindings = bindings.clang_arg("-std=c11");
+    // leptonica's environ.h wraps <stdatomic.h> types (e.g. atomic_int)
+    // behind __STDC_VERSION__ >= 201112L && !__STDC_NO_ATOMICS__. Even with
+    // -std=c11, clang/libclang on some toolchains fails to resolve atomic_int.
+    // Force the non-atomic path so l_atomic becomes a plain int — it's an
+    // internal leptonica type and we never touch it in bindings.
+    bindings = bindings.clang_arg("-D__STDC_NO_ATOMICS__");
 
     bindings = bindings.blocklist_type("max_align_t");
 
